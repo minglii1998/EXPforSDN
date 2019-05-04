@@ -82,15 +82,6 @@ class LearningSwitch(app_manager.RyuApp):
 		print "src %s " % src
 		print "dst %s " % dst
 		
-		self.mac_to_port[dpid][src] = in_port
-		
-		if dst in self.mac_to_port[dpid]:
-			out_port = self.mac_to_port[dpid][dst]
-		else:
-			out_port = ofp.OFPP_FLOOD
-			pass
-		
-
 		if src not in self.net:
 			print "src %s not in self.net" % src
 			print "type %s" % eth.ethertype
@@ -102,49 +93,19 @@ class LearningSwitch(app_manager.RyuApp):
 
 		if dst in self.net:
 			print "dst %s in self.net" % dst
-			path = nx.shortest_path(self.net, src, dst)
-			next_match = parser.OFPMatch(eth_dst=eth.dst)
-			back_match = parser.OFPMatch(eth_dst=eth.src)
-			print path
-			for switch_path in range (1,len(path)-1):
-				now_switch = path[switch_path]
-				next_switch = path[switch_path+1]
-				back_switch = path[switch_path-1]
-				print "now switch:%s" % now_switch
-				print "next switch:%s" % next_switch
-				print "back switch:%s" % back_switch
-				next_port = self.net[now_switch][next_switch]['port']
-				back_port = self.net[now_switch][back_switch]['port']
-				actions = [parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS, [ofp_parser.OFPActionOutput(next_port)])]
-				self.add_flow(datapath=self.switch_map[now_switch],priority=1,match=next_match,actions=actions)
-				actions = [parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS, [ofp_parser.OFPActionOutput(back_port)])]
-				self.add_flow(datapath=self.switch_map[now_switch],priority=1,match=back_match,actions=actions)
+			path = nx.shortest_path(self.net, src, dst, weight=0)
+			next = path[path.index(dpid) + 1]
+			out_port = self.net[dpid][next]['port']
 		else:
 			print "dst %s not in self.net" % dst
 			print "dst %s" % dst
 			out_port = ofp.OFPP_FLOOD
+			
+			
 			actions = [parser.OFPActionOutput(out_port)]
 			out = parser.OFPPacketOut(datapath=dp, buffer_id=msg.buffer_id, in_port=in_port,actions=actions)
         	dp.send_msg(out)
 
-		
-
-		'''
-		actions = [parser.OFPActionOutput(out_port)]
-		
-		if out_port != ofp.OFPP_FLOOD:
-			match = parser.OFPMatch(in_port=in_port,eth_dst=dst)
-			self.add_flow(dp,1,match,actions)
-
-		data = None
-		if msg.buffer_id == ofp.OFP_NO_BUFFER:
-			data = msg.data
-
-		out = parser.OFPPacketOut(
-			datapath=dp, buffer_id=msg.buffer_id,
-			in_port=in_port,actions=actions, data=msg.data)
-		dp.send_msg(out)
-		'''
 
 	def _get_topology(self):
 		while True:
