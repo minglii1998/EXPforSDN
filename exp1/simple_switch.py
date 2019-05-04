@@ -20,10 +20,12 @@ actions)]
 		mod = parser.OFPFlowMod(datapath=dp, priority=priority,
 match=match, instructions=inst)
 		dp.send_msg(mod)
+		print "add flow finish"
 		
 	# add default flow table which sends packets to the controller
 	@set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
 	def switch_features_handler(self, ev):
+		print "switch hand"
 		msg = ev.msg
 		dp = msg.datapath
 		ofp = dp.ofproto
@@ -37,6 +39,7 @@ ofp.OFPCML_NO_BUFFER)]
 	# handle packet_in message
 	@set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
 	def packet_in_handler(self, ev):
+		print "packet in"
 		msg = ev.msg
 		dp = msg.datapath
 		ofp = dp.ofproto
@@ -47,3 +50,4 @@ ofp.OFPCML_NO_BUFFER)]
 			datapath=dp, buffer_id=msg.buffer_id,
 			in_port=msg.match['in_port'],actions=actions, data=msg.data)
 		dp.send_msg(out)
+		print "send ins finish"

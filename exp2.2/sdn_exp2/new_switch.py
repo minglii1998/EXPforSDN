@@ -6,6 +6,10 @@ from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
+from ryu.lib import hub
+from ryu.topology.api import get_all_host, get_all_link, get_all_switch
+import networkx as nx
+import matplotlib.pyplot as plt
 
 class LearningSwitch(app_manager.RyuApp):
 	OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -13,15 +17,15 @@ class LearningSwitch(app_manager.RyuApp):
 	def __init__(self, *args, **kwargs):
 		super(LearningSwitch, self).__init__(*args, **kwargs)
 		self.mac_to_port={}
+		self.topo_thread = hub.spawn(self._get_topology)
 		
 	def add_flow(self, datapath, priority, match, actions):
 		dp = datapath
 		ofp = dp.ofproto
 		parser = dp.ofproto_parser
-		inst = [parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS,
-			actions)]
-		mod = parser.OFPFlowMod(datapath=dp, priority=priority,
-			match=match, instructions=inst)
+
+		inst = [parser.OFPInstructionActions(ofp.OFPIT_APPLY_ACTIONS,actions)]
+		mod = parser.OFPFlowMod(datapath=dp, priority=priority,match=match, instructions=inst)
 		dp.send_msg(mod)
 		print "add flow finished"
 	
@@ -40,7 +44,7 @@ class LearningSwitch(app_manager.RyuApp):
 		
 	@set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
 	def packet_in_handler(self, ev):
-		print "packet in"
+		#print "packet in"
 		msg = ev.msg
 		dp = msg.datapath
 		ofp = dp.ofproto
@@ -58,7 +62,7 @@ class LearningSwitch(app_manager.RyuApp):
 		src = eth_pkt.src
 		
 		# we can use the logger to print some useful information
-		self.logger.info('packet: %s %s %s %s', dpid, src, dst, in_port)
+		#self.logger.info('packet: %s %s %s %s', dpid, src, dst, in_port)
 		self.mac_to_port.setdefault(dpid,{})
 		
 		self.mac_to_port[dpid][src] = in_port
@@ -82,3 +86,33 @@ class LearningSwitch(app_manager.RyuApp):
 			datapath=dp, buffer_id=msg.buffer_id,
 			in_port=in_port,actions=actions, data=msg.data)
 		dp.send_msg(out)
+
+	def _get_topology(self):
+		while True:
+			self.logger.info('\n\n\n')
+			
+			hosts = get_all_host(self)
+			switches = get_all_switch(self)
+			links = get_all_link(self)
+			
+			self.logger.info('hosts:')
+			for hosts in hosts:
+				self.logger.info(hosts.to_dict())
+				
+			self.logger.info('switches:')
+			for switch in switches:
+				self.logger.info(switch.to_dict())
+			
+			self.logger.info('links:')
+			for link in links:
+				self.logger.info(link.to_dict())
+				
+			hub.sleep(2)
+
+
+
+
+
+
+
+

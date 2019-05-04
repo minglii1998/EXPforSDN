@@ -36,24 +36,24 @@ class NetworkAwareness(app_manager.RyuApp):
 		actions = [parser.OFPActionOutput(ofp.OFPP_CONTROLLER,ofp.OFPCML_NO_BUFFER)]
 		self.add_flow(dp, 0, match, actions)
 		
-		def _get_topology(self):
-			while True:
-				self.logger.info('\n\n\n')
+	def _get_topology(self):
+		while True:
+			self.logger.info('\n\n\n')
+			
+			hosts = get_all_host(self)
+			switches = get_all_switch(self)
+			links = get_all_link(self)
+			
+			self.logger.info('hosts:')
+			for hosts in hosts:
+				self.logger.info(hosts.to_dict())
 				
-				hosts = get_all_host(self)
-				switches = get_all_switch(self)
-				links = get_all_link(self)
+			self.logger.info('switches:')
+			for switch in switches:
+				self.logger.info(switch.to_dict())
+			
+			self.logger.info('links:')
+			for link in links:
+				self.logger.info(link.to_dict())
 				
-				self.logger.info('hosts:')
-				for hosts in hosts:
-					self.logger.info(hosts.to_dict())
-					
-				self.logger.info('switches:')
-				for switch in switches:
-					self.logger.info(switch.to_dict())
-				
-				self.logger.info('links:')
-				for link in links:
-					self.logger.info(link.to_dict())
-					
 			hub.sleep(2)
