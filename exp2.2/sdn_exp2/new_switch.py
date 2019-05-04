@@ -17,7 +17,9 @@ class LearningSwitch(app_manager.RyuApp):
 	def __init__(self, *args, **kwargs):
 		super(LearningSwitch, self).__init__(*args, **kwargs)
 		self.mac_to_port={}
+		self.net = nx.DiGraph()
 		self.topo_thread = hub.spawn(self._get_topology)
+		
 		
 	def add_flow(self, datapath, priority, match, actions):
 		dp = datapath
@@ -92,13 +94,23 @@ class LearningSwitch(app_manager.RyuApp):
 			self.logger.info('\n\n\n')
 			
 			hosts = get_all_host(self)
-			switches = get_all_switch(self)
-			links = get_all_link(self)
+			switch_list = get_all_switch(self)
+			links_list = get_all_link(self)
+			switches =[switch.dp.id for switch in switch_list]
+			self.net.add_nodes_from(switches)
+			links=[(link.src.dpid,link.dst.dpid,{'port':link.src.port_no}) for link in links_list]
+			self.net.add_edges_from(links)
+
+			print "-----------List of swichs"
+			print self.net.nodes()
+			print "-----------List of links"
+			print self.net.edges()
+			
 			
 			self.logger.info('hosts:')
 			for hosts in hosts:
 				self.logger.info(hosts.to_dict())
-				
+			'''	
 			self.logger.info('switches:')
 			for switch in switches:
 				self.logger.info(switch.to_dict())
@@ -106,7 +118,7 @@ class LearningSwitch(app_manager.RyuApp):
 			self.logger.info('links:')
 			for link in links:
 				self.logger.info(link.to_dict())
-				
+			'''	
 			hub.sleep(2)
 
 

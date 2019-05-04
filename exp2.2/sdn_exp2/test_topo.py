@@ -21,18 +21,21 @@ if '__main__'== __name__ :
 	s3 = net.addSwitch('s3')
 	s4 = net.addSwitch('s4')
 	s5 = net.addSwitch('s5')
+	s6 = net.addSwitch('s6')
+	s7 = net.addSwitch('s7')
 
 	h1 = net.addHost('h1',mac='00:00:00:00:00:01')
 	h2 = net.addHost('h2',mac='00:00:00:00:00:02')
 
-		
-	net.addLink(h1,s1)
-	net.addLink( s1, s2 )
+	net.addLink(h1,s6)
+	net.addLink(h2,s7)
+	net.addLink(s6,s1)
+	net.addLink(s1,s2)
 	net.addLink(s2,s3)
-	net.addLink(s3,h2)
-	net.addLink(h1,s4)
+	net.addLink(s3,s7)
+	net.addLink(s6,s4)
 	net.addLink(s4,s5)
-	net.addLink(s5,h2)
+	net.addLink(s5,s7)
 
 	#next two will cause loop
 	#net.addLink(s5,s1)
@@ -46,6 +49,9 @@ if '__main__'== __name__ :
 	s3.start([c0])
 	s4.start([c0])
 	s5.start([c0])
+	s6.start([c0])
+	s7.start([c0])
+
 
 
 	CLI(net)
