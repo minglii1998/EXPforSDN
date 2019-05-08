@@ -5,7 +5,7 @@ Exp 1
 代码为`topo_li.py` <br>
 我选取了‘李’字，由于文档中所提供得可视化界面只会显示switch而不会显示交换机，故在写拓扑过程中只写了switch。<br>
 图片如下：<br>
-**尚未加图片**
+![topo](https://github.com/minglii1998/EXPforSDN/blob/master/exp1/pic/sdn_exp1_topoli.png)
 ### 注意：
 ①. 写完拓扑结构运行时，一定要在命令行后面加上 `--controller remote`，否则ryu无法获得其拓扑结构。<br>
 这个问题可能很蠢，但是对于初学者还是蛮致命的。要么在拓扑结构的py中写明为 `controller remote`，
@@ -95,9 +95,57 @@ After handshake with the OpenFlow switch is completed, the Table-miss flow entry
 * `match=Parser.OFPMatch()`：产生match条件，若括号中无任何条件，则表示所有封包都会match此规则。
 * `switch_features_handler(self, ev)`:这个基本属于固定写法，是在switch和controller连接时，对table加入规则，
     数据包会直接送入controller，并触发packet_in事件。
-#### 2.1 代码具体解读`exp1_new_switch.py`
+#### 2.2 代码具体解读`exp1_new_switch.py`
+```python
+	def __init__(self, *args, **kwargs):
+		super(LearningSwitch, self).__init__(*args, **kwargs)
+		self.mac_to_port={}
+```
+* 这里加了一个`self.mac_to_port`字典，用于存储每个dp对应的src或者dst的端口号，之后会细讲
+```python
+	@set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+	def packet_in_handler(self, ev):
+		...
+		
+		self.logger.info('packet: %s %s %s %s', dpid, src, dst, in_port)
+		self.mac_to_port.setdefault(dpid,{})
+		
+		self.mac_to_port[dpid][src] = in_port
+```
+* `self.logger.info()`，将信息打印出来，和print不知道有什么区别，debug的好伙伴
+* `self.mac_to_port.setdefault(dpid,{})`，初始化mac表，`setdefault()`功能为如果这个字典中没有健为dpid的，则初始化一个键为dpid的字典。（嵌套字典）
+* `self.mac_to_port[dpid][src] = in_port`这句以dpid把src和端口号对应了起来，字典形如这样：{dpid:{src:in_port}}，但是要注意的是，src并不是一个键，它只是一个参数，在字典中src与dst没有区别，更像是这样：{dpid:{mac_addr:port}}。
+![mac_to_port](https://github.com/minglii1998/EXPforSDN/blob/master/exp1/pic/sdn1_mactoport.png)
+```python
+	...
+        if dst in self.mac_to_port[dpid]:
+            out_port = self.mac_to_port[dpid][dst]
+        else:
+            out_port = ofproto.OFPP_FLOOD
+	    
+        actions = [parser.OFPActionOutput(out_port)]
+	...
+```
+* 上面说清楚mac_to_port的结构后再看这部分代码应该挺好理解的，可以翻译为：<br>如果当前的这个交换机有存储目的的mac：<br>则输出端口即为这个mac对应的端口<br>否则：<br>flood<br>
+```python
+	...
+	
+        if out_port != ofproto.OFPP_FLOOD:
+            match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
+            self.add_flow(datapath, 1, match, actions)
+	    
+	...    
+```
+* 这里是为了确立加入交换机的规则，下次就不用再询问控制器了<br>
+比如：某个交换机从端口1收到了前往dst_9的包，然后通过控制器确定了我的out_port是3。那么下次我再从端口1收到了前往dst_9的包，就不用再问控制器了，而是直接根据这个规则将包从3号端口送出去即可。
+```python
+	...
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                  in_port=in_port, actions=actions, data=data)
+        datapath.send_msg(out)
+	...
+```
+* 将数据包整合并发送出去，前面的代码只在交换机中加了规则。
 
 
-
-    
-###### 这是除了`SDN_exp1.pdf`文件以外遇到的一些坑，或者值得记录的地方，其实还有很多，但是不想写了.先这样吧。
+##### END
