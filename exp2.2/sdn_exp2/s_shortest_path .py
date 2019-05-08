@@ -26,6 +26,9 @@ class LearningSwitch(app_manager.RyuApp):
 		self.switch_map = {}
 		self.net = nx.DiGraph()
 		self.stp = kwargs['stplib']
+		config = {dpid_lib.str_to_dpid('0000000000000025'):
+                  {'bridge': {'priority': 0x0000}}}
+		self.stp.set_config(config)
 		self.topo_thread = hub.spawn(self._get_topology)
 		
 	def add_flow(self, datapath, priority, match, actions):
@@ -112,6 +115,7 @@ class LearningSwitch(app_manager.RyuApp):
 				if  dpid in path:
 					next = path[path.index(dpid) + 1]
 					out_port = self.net[dpid][next]['port']
+					
 		else:
 			out_port = ofp.OFPP_FLOOD
 			pass

@@ -85,7 +85,8 @@ class LearningSwitch(app_manager.RyuApp):
 		else:
 			out_port = ofp.OFPP_FLOOD
 			pass
-
+		
+		print  self.mac_to_port
 		actions = [parser.OFPActionOutput(out_port)]
 
 		if out_port != ofp.OFPP_FLOOD:

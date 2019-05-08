@@ -26,6 +26,9 @@ class LearningSwitch(app_manager.RyuApp):
 		self.switch_map = {}
 		self.net = nx.DiGraph()
 		self.stp = kwargs['stplib']
+		config = {dpid_lib.str_to_dpid('0000000000000025'):
+                  {'bridge': {'priority': 0x1111}}}
+		self.stp.set_config(config)
 		self.topo_thread = hub.spawn(self._get_topology)
 		
 	def add_flow(self, datapath, priority, match, actions):
@@ -105,57 +108,67 @@ class LearningSwitch(app_manager.RyuApp):
 		
 		
 		# we can use the logger to print some useful information
-		#self.logger.info('packet: %s %s %s %s', dpid, src, dst, in_port)
+		#self.logger.info('packet ooooooooooooooooooooooo: %s %s %s %s', dpid, src, dst, in_port)
 		self.mac_to_port.setdefault(dpid,{})
 		
 		self.mac_to_port[dpid][src] = in_port
+		
 		if dst in self.mac_to_port[dpid]:
 			out_port = self.mac_to_port[dpid][dst]
+			
 			if src not in self.net:
-				#print "src %s not in self.net" % src
-				#print "type %s" % eth.ethertype
-				#print "dpid %s" % dpid
-				self.net.add_node(src)
-				self.net.add_edge(dpid, src, port=in_port, weight=0)
-				self.net.add_edge(src, dpid, weight=0)
-				#print (src in self.net)
+					print "src %s not in self.net" % src
+					#print "type %s" % eth.ethertype
+					#print "dpid %s" % dpid
+					self.net.add_node(src)
+					self.net.add_edge(dpid, src, port=in_port, weight=0)
+					self.net.add_edge(src, dpid, weight=0)
+					#print (src in self.net)
+				
+
+			#self.logger.info('packet 11111111111111111: %s %s %s %s', dpid, src, dst, in_port)
 
 			if dst in self.net:
-				#print "dst %s in self.net" % dst
+				print "dst %s in self.net" % dst
 				path = nx.shortest_path(self.net, src, dst, weight=0)
 				#print "path dpid : %s" % dpid
-				#self.logger.info('packet: %s %s %s %s', dpid, src, dst, in_port)
+				self.logger.info('packet: %s %s %s %s', dpid, src, dst, in_port)
 				print "path : %s" % path
 				#print dpid in path
 
 				if  dpid in path:
 					next = path[path.index(dpid) + 1]
-					'''
+					last = path[path.index(dpid) - 1]
 					print "in"
 					print dpid in path
 					print "next: %s" % next
-					print "len path %s" % len(path)
+					print "last: %s" % last
+					#print "len path %s" % len(path)
 					print "path now: %s" % path[path.index(dpid)]
 					print "(%s,%s)" % (path[path.index(dpid)],next)
-					'''
+					
 					
 					out_port = self.net[dpid][next]['port']
+					#self.net.add_edge(next, dpid, port=out_port, weight=0)
+					self.net.add_edge(dpid, last, port=in_port, weight=0)
+					self.mac_to_port[dpid][next] = out_port
+					self.mac_to_port[dpid][dst] = out_port
+					self.mac_to_port[dpid][last] = in_port
+					print "out_port %s" % out_port
 			
 		else:
 			out_port = ofp.OFPP_FLOOD
 			pass
 		
+		#print "`````````````%s````````````````" % dpid
 		#print  self.mac_to_port[dpid]
+		
 
 		actions = [parser.OFPActionOutput(out_port)]
 
 		if out_port != ofp.OFPP_FLOOD:
 			match = parser.OFPMatch(in_port=in_port,eth_dst=dst)
 			self.add_flow(dp,1,match,actions)
-
-		data = None
-		if msg.buffer_id == ofp.OFP_NO_BUFFER:
-			data = msg.data
 		
 		out = parser.OFPPacketOut(
 			datapath=dp, buffer_id=msg.buffer_id,
@@ -197,4 +210,4 @@ class LearningSwitch(app_manager.RyuApp):
 					stplib.PORT_STATE_FORWARD: 'FORWARD'}
 		self.logger.debug("[dpid=%s][port=%d] state=%s",
 					dpid_str, ev.port_no, of_state[ev.port_state])
-			
+		
