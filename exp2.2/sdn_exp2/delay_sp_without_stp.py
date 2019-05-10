@@ -124,7 +124,7 @@ class ARP_PROXY_13(app_manager.RyuApp):
         #print self.sw
         
         self.mac_to_port.setdefault(dpid, {})
-        self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+        #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
@@ -173,21 +173,21 @@ class ARP_PROXY_13(app_manager.RyuApp):
         header_list = header_list
         datapath = datapath
         in_port = in_port
-        print "arp hand"
+
 
         if ETHERNET in header_list:
             eth_dst = header_list[ETHERNET].dst
             eth_src = header_list[ETHERNET].src
         
-        print "in 1"
+
         print header_list
 
         if eth_dst == ETHERNET_MULTICAST and ARP in header_list:
             arp_dst_ip = header_list[ARP].dst_ip
-            print "in 2"
+
             if (datapath.id, eth_src, arp_dst_ip) in self.sw:  # Break the loop
                 if self.sw[(datapath.id, eth_src, arp_dst_ip)] != in_port:
-                    print "in 3"
+
                     out = datapath.ofproto_parser.OFPPacketOut(
                         datapath=datapath,
                         buffer_id=datapath.ofproto.OFP_NO_BUFFER,
