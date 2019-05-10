@@ -7,7 +7,7 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
-from ryu.lib.packet import arp
+from ryu.lib.packet import arp, lldp
 
 from ryu.lib import hub
 from ryu.topology.api import get_all_host, get_all_link, get_all_switch
@@ -33,7 +33,9 @@ class ARP_PROXY_13(app_manager.RyuApp):
         self.arp_table = {}
         self.sw = {}
         self.switch_map = {}
+        self.lldp_delay={}
         self.net = nx.DiGraph()
+        self.switches = None
         self.topo_thread = hub.spawn(self._get_topology)
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
@@ -41,14 +43,6 @@ class ARP_PROXY_13(app_manager.RyuApp):
         datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-
-        # install table-miss flow entry
-        #
-        # We specify NO BUFFER to max_len of the output action due to
-        # OVS bug. At this moment, if we specify a lesser number, e.g.,
-        # 128, OVS will send Packet-In with invalid buffer_id and
-        # truncated packet data. In that case, we cannot output packets
-        # correctly.
 
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
@@ -67,7 +61,8 @@ class ARP_PROXY_13(app_manager.RyuApp):
                                 match=match, instructions=inst)
         datapath.send_msg(mod)
         
-    def _get_topology(self):
+        
+    def _get_topology(self): 
         while True:
             self.logger.info('\n')
 
@@ -79,6 +74,7 @@ class ARP_PROXY_13(app_manager.RyuApp):
             links=[(link.src.dpid,link.dst.dpid,{'port':link.src.port_no}) for link in links_list]
             self.net.add_edges_from(links)
             hub.sleep(2)
+
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -95,27 +91,21 @@ class ARP_PROXY_13(app_manager.RyuApp):
         eth = pkt.get_protocols(ethernet.ethernet)[0]
         dst = eth.dst
         src = eth.src
+        
+        if eth.ethertype == ether_types.ETH_TYPE_LLDP:
+            src_dpid, src_port_no = switches.LLDPPacket.lldp_parse(msg.data)
+            if self.switches is None:
+                self.switches = app_manager.lookup_service_brick('switches')
 
-		
-        src_dpid, src_port_no = LLDPPacket.lldp_parse(msg.data)
-        print "first in"
-        print "self switch : %s" %  self.switches
-        if self.switches is None:
-            self.switches = lookup_service_brick('switches')
+            for port in self.switches.ports.keys():
+                if src_dpid == port.dpid and src_port_no == port.port_no:
+                    self.lldp_delay[(src_dpid,dpid)] = self.switches.ports[port].delay
+                    a=self.lldp_delay[(src_dpid,dpid)]
+                    self.net.add_edge(src_dpid,dpid,weight = a)
+                    self.net.add_edge(dpid,src_dpid,weight = a)
+                    #self.net[dpid][src_dpid]['weight'] = self.lldp_delay[(src_dpid,dpid)]
 
-        print "keys: %s" % self.switches.ports.keys()
-
-        for port in self.switches.ports.keys():
-            print "in"
-            if src_dpid == port.dpid and src_port_no == port.port_no:
-                lldp_delay[(src_dpid, dpid)] = self.switches.ports[port].delay
-                print "src_dpid : %s" % src_dpid
-                print "delay %s" % lldp_delay[(src_dpid, dpid)] 
-                #self.net[src_dpid][dpid]['delay'] = lldp_delay[(src_dpid, dpid)] 
-                #self.net[dpid][src_dpid]['delay'] = lldp_delay[(src_dpid, dpid)] 
-
-
-        print "die"
+        
         
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             return
@@ -141,18 +131,19 @@ class ARP_PROXY_13(app_manager.RyuApp):
         
         if src not in self.net:
             self.net.add_node(src)
-            self.net.add_edge(dpid, src, port=in_port, weight=0)
-            self.net.add_edge(src, dpid, weight=0)
-
+            self.net.add_edge(dpid, src, port=in_port)
+            self.net.add_edge(src, dpid)
+        
         if dst in self.mac_to_port[dpid]:
             out_port = self.mac_to_port[dpid][dst]
             if dst in self.net:
-                path = nx.shortest_path(self.net, src, dst, weight="delay")
+                path = nx.shortest_path(self.net, src, dst, weight='weight')
                 print "path : %s" % path
                 
                 if  dpid in path:
                     next = path[path.index(dpid) + 1]
                     out_port = self.net[dpid][next]['port']
+        
                 
         else:
             if self.arp_handler(header_list, dp, in_port, msg.buffer_id):
@@ -206,45 +197,3 @@ class ARP_PROXY_13(app_manager.RyuApp):
                     return True
             else:
                 self.sw[(datapath.id, eth_src, arp_dst_ip)] = in_port
-'''
-        if ARP in header_list:
-            hwtype = header_list[ARP].hwtype
-            proto = header_list[ARP].proto
-            hlen = header_list[ARP].hlen
-            plen = header_list[ARP].plen
-            opcode = header_list[ARP].opcode
-
-            arp_src_ip = header_list[ARP].src_ip
-            arp_dst_ip = header_list[ARP].dst_ip
-
-            actions = []
-
-            if opcode == arp.ARP_REQUEST:
-                if arp_dst_ip in self.arp_table:  # arp reply
-                    actions.append(datapath.ofproto_parser.OFPActionOutput(
-                        in_port)
-                    )
-
-                    ARP_Reply = packet.Packet()
-                    ARP_Reply.add_protocol(ethernet.ethernet(
-                        ethertype=header_list[ETHERNET].ethertype,
-                        dst=eth_src,
-                        src=self.arp_table[arp_dst_ip]))
-                    ARP_Reply.add_protocol(arp.arp(
-                        opcode=arp.ARP_REPLY,
-                        src_mac=self.arp_table[arp_dst_ip],
-                        src_ip=arp_dst_ip,
-                        dst_mac=eth_src,
-                        dst_ip=arp_src_ip))
-
-                    ARP_Reply.serialize()
-
-                    out = datapath.ofproto_parser.OFPPacketOut(
-                        datapath=datapath,
-                        buffer_id=datapath.ofproto.OFP_NO_BUFFER,
-                        in_port=datapath.ofproto.OFPP_CONTROLLER,
-                        actions=actions, data=ARP_Reply.data)
-                    datapath.send_msg(out)
-                    return True
-        return False
-'''
