@@ -23,7 +23,7 @@ After the port role is decided (STP calculation is completed), each port becomes
 After that, the state changes as shown below and according to the role of each port, 
 it eventually becomes FORWARD state or BLOCK state. 
 Ports set as disabled ports in the configuration become DISABLE state and after that the change of state does not take place.<br>
-![](https://osrg.github.io/ryu-book/en/html/_images/fig33.png ''Port state change'')<br>
+![stp](https://github.com/minglii1998/EXPforSDN/blob/master/exp2.2/sdn_exp2/pic/stp_wrong1.png)
 `DISABLE`	Disabled port. Ignores all received packets.<br>
 `BLOCK`	  Receives BPDU only.<br>
 `LISTEN`	Sends and receives BPDU.<br>
@@ -243,12 +243,62 @@ ARP = arp.arp.__name__
 这里可见，如果dst不在mac_to_port中，即代表此时目的mac是未知的，就需要处理arp包，若成功将多余的包丢弃，则打印ARP_PROXY_13.<br>
 这里的代码用的依然是单纯的利用mac_to_port去学习,在简单的拓扑结构中是没问题的,但是在复杂的拓扑结构中,比如这次作业的拓扑结构中,就是无法正常运行的.
 #### 1.5 主体获得最短路径的方法
+###### 1.5.1 `sp_without-stp.py`主体代码解释
+```python
+    def __init__(self, *args, **kwargs):
+	...
+        self.net = nx.DiGraph()
+        ...
+```
+* `nx.DiGraph()`直接调用nx中的有向图,之所以不用无向图,是因为从一个switch1到另一个switch2的端口是不同的,比如1-2是1的2端口,2-1则可能是2的3端口.
+```python
+    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
+    def _packet_in_handler(self, ev):
+    	...
+	if eth.ethertype == ether_types.ETH_TYPE_LLDP:
+            return
+		
+        if eth.ethertype == 34525:
+            return
+	...
+```
+* 这两个使用将lldp包和ipv6包过滤掉,这两种包存在的情况会导致拓扑结构获取出现问题
+```python
+        ...
+        if src not in self.net:
+            self.net.add_node(src)
+            self.net.add_edge(dpid, src, port=in_port, weight=0)
+            self.net.add_edge(src, dpid, weight=0)
 
-
-
-
-
-
+        if dst in self.mac_to_port[dpid]:
+            out_port = self.mac_to_port[dpid][dst]
+            if dst in self.net:
+                path = nx.shortest_path(self.net, src, dst, weight=0)
+                print "path : %s" % path
+                
+                if  dpid in path:
+                    next = path[path.index(dpid) + 1]
+                    out_port = self.net[dpid][next]['port']
+                
+        else:
+            if self.arp_handler(header_list, dp, in_port, msg.buffer_id):
+            
+                # 1:reply or drop;  0: flood
+                print "ARP_PROXY_13"
+                return None
+            else:
+                out_port = ofp.OFPP_FLOOD
+                print 'OFPP_FLOOD'
+	    ...
+```
+* 刚开始nx是没有存主机的,所有需要将src存入nx,并且将src加入后,需要将与dpid相关的两个edge加入
+* 由于只有主机会触发src,所以也就意味着只有与主机相连的dp需要加这两个edge,所以不会存在破坏拓扑结构的问题
+* 在这里我是用了`mac_to_port`和`net`两个判断,实际上前面的mac_to_port完全是不需要的,之后把它删了试试.
+* 如果dst在net里,就可以直接调用最短路径,打印path,并且获得下一个dpid以及输出端口
+#### 1.6 实验第一部分总结
+这个实验花了我一周时间,然后过程中心态崩溃了很多次,有很多次都想放弃,但是最终写完之后发现也不过如此.<br>
+最主要的问题在于生成树协议,我从来没想过是因为生成树协议和最短路径冲突才导致我ping不通,上网查时也没有查到任何相关的说法,给助教发邮件说我用的stp,他也完全没有跟我说stp和最短路径冲突,可能他也不知道吧.真的非常窒息.我在生成树协议上炸了3.4天,各种配环境改逻辑都没用,真的是自闭.不过幸好后来发现了问题,用另一种方法处理aro,就解决了.<br>
+这次实验除了学到的关于sdn的这些知识,另外最重要的感悟,就是**一切都是有原因的,不可能就因为玄学让你一会可以一会不行,找不到原因就是自己逻辑不够严密,不要随随便便心态炸随随便便玄学.**
 
 
 
