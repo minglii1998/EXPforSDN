@@ -296,9 +296,34 @@ ARP = arp.arp.__name__
 * 在这里我是用了`mac_to_port`和`net`两个判断,实际上前面的mac_to_port完全是不需要的,之后把它删了试试.
 * 如果dst在net里,就可以直接调用最短路径,打印path,并且获得下一个dpid以及输出端口
 #### 1.6 实验第一部分总结
-这个实验花了我一周时间,然后过程中心态崩溃了很多次,有很多次都想放弃,但是最终写完之后发现也不过如此.<br>
-最主要的问题在于生成树协议,我从来没想过是因为生成树协议和最短路径冲突才导致我ping不通,上网查时也没有查到任何相关的说法,给助教发邮件说我用的stp,他也完全没有跟我说stp和最短路径冲突,可能他也不知道吧.真的非常窒息.我在生成树协议上炸了3.4天,各种配环境改逻辑都没用,真的是自闭.不过幸好后来发现了问题,用另一种方法处理aro,就解决了.<br>
-这次实验除了学到的关于sdn的这些知识,另外最重要的感悟,就是**一切都是有原因的,不可能就因为玄学让你一会可以一会不行,找不到原因就是自己逻辑不够严密,不要随随便便心态炸随随便便玄学.**
+这个实验花了我一周时间,然后过程中心态崩溃了很多次,有很多次都想放弃,但是最终写完之后发现也不过如此.<br><br>
+最主要的问题在于生成树协议,我从来没想过是因为生成树协议和最短路径冲突才导致我ping不通,上网查时也没有查到任何相关的说法,给助教发邮件说我用的stp,他也完全没有跟我说stp和最短路径冲突,可能他也不知道吧.真的非常窒息.我在生成树协议上炸了3.4天,各种配环境改逻辑都没用,真的是自闭.不过幸好后来发现了问题,用另一种方法处理aro,就解决了.<br><br>
+这次实验除了学到的关于sdn的这些知识,另外最重要的感悟,就是<br>
+**一切都是有原因的,不可能就因为玄学让你一会可以一会不行,找不到原因就是自己逻辑不够严密,不要随随便便心态炸随随便便玄学.**
+### 2. Shortest Delay 
+###### 就按照pdf文档上的做就行了，没啥难的。
+```python
+            for port in self.switches.ports.keys():
+                if src_dpid == port.dpid and src_port_no == port.port_no:
+                    self.lldp_delay[(src_dpid,dpid)] = self.switches.ports[port].delay
+                    a=self.lldp_delay[(src_dpid,dpid)]
+                    self.net.add_edge(src_dpid,dpid,weight = a)
+                    self.net.add_edge(dpid,src_dpid,weight = a)
+                    #self.net[dpid][src_dpid]['weight'] = self.lldp_delay[(src_dpid,dpid)]
+```
+* 这里我没有采用pdf中的写法，主要是因为会出现键值错误的原因，不知道为什么，另一个同学这部分代码和我几乎一样的，但是他却没有这个问题，幸好当时灵光一闪换成了self.net.add_edge()这种方法..不然真的是凉凉...
+<br><br><br>
+###### 各文档解释：
+* `Arpanet19723.py`题目要求的拓扑结构
+* `SDN_exp2.pdf`and`SDN_exp2.md`具体的题目要求
+* `delay_sp_without_stp.py`最短时延代码
+* `get_topo.py`获取拓扑结构的代码
+* `method_arp_flood.py`除了stp以外的第二种避免arp洪泛的代码
+* `ryu_shpath_delay.py`最短时延代码（另一个同学的）
+* `sp_with_stp.py`利用stp做的最短路径
+* `sp_without-stp.py`利用第二种方法做的最短路径
+* `test_sp_with.py`利用stp完成的最短路径，但是很多输出没删，用于测试
+* `test_topo.py`自己做的一个小型有环拓扑
 
 
 
