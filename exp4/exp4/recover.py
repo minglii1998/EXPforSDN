@@ -13,6 +13,7 @@ from ryu.topology.api import get_link
 from ryu.lib.packet import ether_types
 from ryu.app.wsgi import  WSGIApplication
 from collections import defaultdict
+from datetime import datetime,timedelta
 import network_monitor
 class dynamic_rules(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -42,8 +43,10 @@ class dynamic_rules(app_manager.RyuApp):
 
         self.ip_to_port = {}  #{ip:(dpid,port)}
         #promise me, use it well :)
-        self.pathmod = 0
+        self.pathmod = 0 #0:short,1:long
         self.path = None
+
+
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -59,8 +62,7 @@ class dynamic_rules(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
-                                             actions)]
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,actions)]
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     priority=priority, match=match,
@@ -95,9 +97,11 @@ class dynamic_rules(app_manager.RyuApp):
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             return
 
+
         dst = eth.dst
         src = eth.src
         dpid = datapath.id
+        #print "pac in"
 
         # self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
@@ -147,6 +151,7 @@ class dynamic_rules(app_manager.RyuApp):
             (dst_dpid, dst_port) = self.ip_to_port[pkt_ipv4.dst]  # dst dpid and port
             self.install_path(src_dpid=src_dpid, dst_dpid=dst_dpid, src_port=src_port, dst_port=dst_port,
                               ev=ev, src=src, dst=dst, pkt_ipv4=pkt_ipv4, pkt_tcp=pkt_tcp)
+
     def send_pkt(self, datapath, port, pkt):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
@@ -162,13 +167,13 @@ class dynamic_rules(app_manager.RyuApp):
         pkt.add_protocol(ethernet.ethernet(ethertype=0x0806, dst=dst_mac, src=src_mac))
         pkt.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac=src_mac, src_ip=src_ip, dst_mac=dst_mac, dst_ip=dst_ip))
         self.send_pkt(datapath, port, pkt)
+
     def install_path(self, src_dpid, dst_dpid, src_port, dst_port, ev, src, dst, pkt_ipv4, pkt_tcp):
+        print "install path"
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-       
-        mid_path = None
+        parser = datapath.ofproto_parser    
 
         mid_path = self.short_path(src=src_dpid, dst=dst_dpid)
 
@@ -178,6 +183,7 @@ class dynamic_rules(app_manager.RyuApp):
         self.path = [(src_dpid, src_port)] + mid_path + [(dst_dpid, dst_port)]
 
         self.logger.info("path : %s", str(self.path))
+        #print self.pathmod
         
         for i in xrange(len(self.path) - 2, -1, -2):
             datapath_path = self.datapaths[self.path[i][0]]
@@ -190,7 +196,7 @@ class dynamic_rules(app_manager.RyuApp):
                 actions = [parser.OFPActionSetField(eth_dst=self.ip_to_mac.get(pkt_ipv4.dst)),
                             parser.OFPActionOutput(self.path[i + 1][1])]
             
-            self.add_flow(datapath_path, 100, match, actions, idle_timeout=5, hard_timeout=0)
+            self.add_flow(datapath_path, 100, match, actions, idle_timeout=0, hard_timeout=0)
         # time_install = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
         # self.logger.info("time_install: %s", time_install)
 
@@ -235,7 +241,6 @@ class dynamic_rules(app_manager.RyuApp):
 
         if dst not in result:
             return None
-
         while (dst in result) and (result[dst] is not None):
             path = [result[dst][2:4]] + path
             path = [result[dst][0:2]] + path
@@ -244,7 +249,33 @@ class dynamic_rules(app_manager.RyuApp):
         return path
 
     # this function might be useful, but who knows anyway
-    # def long_path(self, src, dst, bw=0):
+    def long_path(self, src, dst, bw=0):
+        if src == dst:
+            return []
+
+        result = defaultdict(lambda: defaultdict(lambda: None))
+        if src==1 and dst == 5:
+            fixed_path=[(1,2),(2,3),(3,5)]
+        elif src == 5 and dst == 1:
+            fixed_path=[(5,3),(3,2),(2,1)]
+
+        for (temp_src, temp_dst) in fixed_path:
+            if (temp_src, temp_dst) in self.src_links[temp_src]:
+                temp_src_port = self.src_links[temp_src][(temp_src, temp_dst)][0]
+                temp_dst_port = self.src_links[temp_src][(temp_src, temp_dst)][1]
+                result[temp_dst] = (temp_src, temp_src_port, temp_dst, temp_dst_port)
+
+        path = []
+        if dst not in result:
+            return None
+        while (dst in result) and (result[dst] is not None):
+            path = [result[dst][2:4]] + path
+            path = [result[dst][0:2]] + path
+            dst = result[dst][0]
+        #self.logger.info("path : %s", str(path))
+        return path
+
+
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])
     def state_change_handler(self, ev):
@@ -277,8 +308,65 @@ class dynamic_rules(app_manager.RyuApp):
             # self.logger.info("src_links : %s", str(self.src_links))
             # self.logger.info("port_name_to_num : %s", str(self.port_name_to_num))
 
-    # these two functions need to be coded in your own way
-    #def delete_flow(self, datapath, priority, match, actions, idle_timeout=10, hard_timeout=60):
 
-    #@set_ev_cls(ofp_event.EventOFPPortStatus, [CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER, HANDSHAKE_DISPATCHER])
-    #def get_OFPPortStatus_msg(self, ev):
+    # these two functions need to be coded in your own way
+    def delete_flow(self, datapath,match):
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+        cookie = cookie_mask = 0
+        table_id = 0
+        priority=101
+        idle_timeout = 15
+        hard_timeout = 60
+        buffer_id = ofp.OFP_NO_BUFFER
+        #match = ofp_parser.OFPMatch()
+        #match = ofp_parser.OFPMatch(in_port=3, eth_type=flow_info[0], ipv4_src="10.0.0.1", ipv4_dst="10.0.0.2")
+        actions = []
+        inst = []
+        req = ofp_parser.OFPFlowMod(datapath, 
+                                cookie, cookie_mask, table_id, 
+                                ofp.OFPFC_DELETE, idle_timeout, 
+                                hard_timeout, priority, buffer_id, 
+                                ofp.OFPP_ANY, ofp.OFPG_ANY, ofp.OFPFF_SEND_FLOW_REM, 
+                                match, inst)
+        datapath.send_msg(req)
+
+
+    @set_ev_cls(ofp_event.EventOFPPortStatus, [CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER, HANDSHAKE_DISPATCHER])
+    def get_OFPPortStatus_msg(self, ev):
+    
+        msg=ev.msg
+        datapath=ev.msg.datapath
+        dpid = msg.datapath.id
+        ofproto=datapath.ofproto
+        parser = datapath.ofproto_parser 
+        
+
+        for ip in self.ip_to_port:
+            if self.ip_to_port[ip] == self.path[-1]:
+                dstip=ip
+
+        for ip in self.ip_to_port:
+            if self.ip_to_port[ip] == self.path[0]:
+                srcip=ip
+        
+        src=self.ip_to_mac[srcip]
+        dst=self.ip_to_mac[dstip]
+
+        '''
+        print "test"
+        print datapath.id
+        print msg.reason
+        print ofproto.OFPPR_MODIFY
+        '''
+        for i in xrange(len(self.path) - 2, -1, -2):
+            datapath_path = self.datapaths[self.path[i][0]]
+
+
+            match1 = parser.OFPMatch(in_port=self.path[i][1], eth_src=src, eth_dst=dst, eth_type=0x0800,
+                                    ipv4_src=srcip, ipv4_dst=dstip)
+            self.delete_flow(datapath=datapath_path,match=match1)
+            match2 = parser.OFPMatch(in_port=self.path[i+1][1], eth_src=dst, eth_dst=src, eth_type=0x0800,
+                                    ipv4_src=dstip, ipv4_dst=srcip)
+            self.delete_flow(datapath=datapath_path,match=match2)
+        

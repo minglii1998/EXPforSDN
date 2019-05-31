@@ -85,6 +85,7 @@ class ARP_PROXY_13(app_manager.RyuApp):
         dpid = dp.id
         parser = dp.ofproto_parser
         in_port = msg.match['in_port']
+        tt_delay=0
 
         pkt = packet.Packet(msg.data)
 
@@ -131,8 +132,8 @@ class ARP_PROXY_13(app_manager.RyuApp):
         
         if src not in self.net:
             self.net.add_node(src)
-            self.net.add_edge(dpid, src, port=in_port)
-            self.net.add_edge(src, dpid)
+            self.net.add_edge(dpid, src, port=in_port,weight =0)
+            self.net.add_edge(src, dpid,weight =0)
         
         if dst in self.mac_to_port[dpid]:
             out_port = self.mac_to_port[dpid][dst]
@@ -143,7 +144,13 @@ class ARP_PROXY_13(app_manager.RyuApp):
                 if  dpid in path:
                     next = path[path.index(dpid) + 1]
                     out_port = self.net[dpid][next]['port']
-        
+                    
+                    for i in range(1, len(path)-1):
+                        now_switch = path[i]
+                        next_switch = path[i+1]
+                        if i < len(path)-2:
+                            tt_delay = tt_delay + self.net[now_switch][next_switch]['weight']
+                print "delay: %s" % tt_delay
                 
         else:
             if self.arp_handler(header_list, dp, in_port, msg.buffer_id):

@@ -13,6 +13,7 @@ from ryu.topology.api import get_link
 from ryu.lib.packet import ether_types
 from ryu.app.wsgi import  WSGIApplication
 from collections import defaultdict
+from datetime import datetime,timedelta
 import network_monitor
 class dynamic_rules(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -25,6 +26,8 @@ class dynamic_rules(app_manager.RyuApp):
         self.mac_to_port = {}
         self.ip_to_mac = {}
         self.mac_to_dpid = {}  # {mac:(dpid,port)}
+        self.last_time=datetime.now()
+        self.counting=0
 
         self.datapaths = defaultdict(lambda: None)
         self.topology_api_app = self
@@ -42,8 +45,9 @@ class dynamic_rules(app_manager.RyuApp):
 
         self.ip_to_port = {}  #{ip:(dpid,port)}
         #promise me, use it well :)
-        self.pathmod = 0
+        self.pathmod = 0 #0:short,1:long
         self.path = None
+
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -94,6 +98,24 @@ class dynamic_rules(app_manager.RyuApp):
 
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             return
+        
+        nowtime = datetime.now()
+        if nowtime - self.last_time > timedelta(seconds=3):
+            self.counting = self.counting + 1
+        '''
+        print self.counting
+        print "time:"
+        print self.last_time
+        print nowtime
+        '''
+        self.last_time=nowtime
+
+
+        if self.counting %2 == 0:
+            self.pathmod = 0
+        elif self.counting %2 == 1:
+            self.pathmod = 1
+
 
         dst = eth.dst
         src = eth.src
@@ -147,6 +169,7 @@ class dynamic_rules(app_manager.RyuApp):
             (dst_dpid, dst_port) = self.ip_to_port[pkt_ipv4.dst]  # dst dpid and port
             self.install_path(src_dpid=src_dpid, dst_dpid=dst_dpid, src_port=src_port, dst_port=dst_port,
                               ev=ev, src=src, dst=dst, pkt_ipv4=pkt_ipv4, pkt_tcp=pkt_tcp)
+
     def send_pkt(self, datapath, port, pkt):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
@@ -162,6 +185,7 @@ class dynamic_rules(app_manager.RyuApp):
         pkt.add_protocol(ethernet.ethernet(ethertype=0x0806, dst=dst_mac, src=src_mac))
         pkt.add_protocol(arp.arp(opcode=arp.ARP_REPLY, src_mac=src_mac, src_ip=src_ip, dst_mac=dst_mac, dst_ip=dst_ip))
         self.send_pkt(datapath, port, pkt)
+
     def install_path(self, src_dpid, dst_dpid, src_port, dst_port, ev, src, dst, pkt_ipv4, pkt_tcp):
         msg = ev.msg
         datapath = msg.datapath
@@ -169,8 +193,13 @@ class dynamic_rules(app_manager.RyuApp):
         parser = datapath.ofproto_parser
        
         mid_path = None
+        if self.pathmod == 0:
+            mid_path = self.short_path(src=src_dpid, dst=dst_dpid)
+        else:
+            mid_path = self.long_path(src=src_dpid, dst=dst_dpid)
 
-        mid_path = self.short_path(src=src_dpid, dst=dst_dpid)
+        #mid_path = self.short_path(src=src_dpid, dst=dst_dpid)
+        #mid_path = self.long_path(src=src_dpid, dst=dst_dpid)
 
         if mid_path is None:
             return
@@ -178,6 +207,7 @@ class dynamic_rules(app_manager.RyuApp):
         self.path = [(src_dpid, src_port)] + mid_path + [(dst_dpid, dst_port)]
 
         self.logger.info("path : %s", str(self.path))
+        #print self.pathmod
         
         for i in xrange(len(self.path) - 2, -1, -2):
             datapath_path = self.datapaths[self.path[i][0]]
@@ -190,7 +220,7 @@ class dynamic_rules(app_manager.RyuApp):
                 actions = [parser.OFPActionSetField(eth_dst=self.ip_to_mac.get(pkt_ipv4.dst)),
                             parser.OFPActionOutput(self.path[i + 1][1])]
             
-            self.add_flow(datapath_path, 100, match, actions, idle_timeout=5, hard_timeout=0)
+            self.add_flow(datapath_path, 100, match, actions, idle_timeout=0, hard_timeout=5)
         # time_install = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
         # self.logger.info("time_install: %s", time_install)
 
@@ -235,7 +265,6 @@ class dynamic_rules(app_manager.RyuApp):
 
         if dst not in result:
             return None
-
         while (dst in result) and (result[dst] is not None):
             path = [result[dst][2:4]] + path
             path = [result[dst][0:2]] + path
@@ -244,7 +273,33 @@ class dynamic_rules(app_manager.RyuApp):
         return path
 
     # this function might be useful, but who knows anyway
-    # def long_path(self, src, dst, bw=0):
+    def long_path(self, src, dst, bw=0):
+        if src == dst:
+            return []
+
+        result = defaultdict(lambda: defaultdict(lambda: None))
+        if src==1 and dst == 5:
+            fixed_path=[(1,2),(2,3),(3,5)]
+        elif src == 5 and dst == 1:
+            fixed_path=[(5,3),(3,2),(2,1)]
+
+        for (temp_src, temp_dst) in fixed_path:
+            if (temp_src, temp_dst) in self.src_links[temp_src]:
+                temp_src_port = self.src_links[temp_src][(temp_src, temp_dst)][0]
+                temp_dst_port = self.src_links[temp_src][(temp_src, temp_dst)][1]
+                result[temp_dst] = (temp_src, temp_src_port, temp_dst, temp_dst_port)
+
+        path = []
+        if dst not in result:
+            return None
+        while (dst in result) and (result[dst] is not None):
+            path = [result[dst][2:4]] + path
+            path = [result[dst][0:2]] + path
+            dst = result[dst][0]
+        #self.logger.info("path : %s", str(path))
+        return path
+
+
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])
     def state_change_handler(self, ev):
@@ -276,6 +331,7 @@ class dynamic_rules(app_manager.RyuApp):
             # self.logger.info("****src_port_name : %s", str(src_port_name))
             # self.logger.info("src_links : %s", str(self.src_links))
             # self.logger.info("port_name_to_num : %s", str(self.port_name_to_num))
+
 
     # these two functions need to be coded in your own way
     #def delete_flow(self, datapath, priority, match, actions, idle_timeout=10, hard_timeout=60):

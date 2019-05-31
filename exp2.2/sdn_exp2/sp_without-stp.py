@@ -30,7 +30,6 @@ class ARP_PROXY_13(app_manager.RyuApp):
         self.mac_to_port = {}
         self.arp_table = {}
         self.sw = {}
-        self.switch_map = {}
         self.net = nx.DiGraph()
         self.topo_thread = hub.spawn(self._get_topology)
 
@@ -39,14 +38,6 @@ class ARP_PROXY_13(app_manager.RyuApp):
         datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-
-        # install table-miss flow entry
-        #
-        # We specify NO BUFFER to max_len of the output action due to
-        # OVS bug. At this moment, if we specify a lesser number, e.g.,
-        # 128, OVS will send Packet-In with invalid buffer_id and
-        # truncated packet data. In that case, we cannot output packets
-        # correctly.
 
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
@@ -107,9 +98,6 @@ class ARP_PROXY_13(app_manager.RyuApp):
         if ARP in header_list:
             self.arp_table[header_list[ARP].src_ip] = src  # ARP learning
           
-        #print header_list
-        #print self.arp_table
-        #print self.sw
         
         self.mac_to_port.setdefault(dpid, {})
         #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
@@ -148,12 +136,13 @@ class ARP_PROXY_13(app_manager.RyuApp):
         if out_port != ofp.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
             self.add_flow(dp, 1, match, actions)
-
+		
         data = None
         if msg.buffer_id == ofp.OFP_NO_BUFFER:
             data = msg.data
         out = parser.OFPPacketOut(datapath=dp, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
+        
         dp.send_msg(out)
 
     def arp_handler(self, header_list, datapath, in_port, msg_buffer_id):
