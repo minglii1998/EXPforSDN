@@ -276,42 +276,20 @@ class dynamic_rules(app_manager.RyuApp):
     def long_path(self, src, dst, bw=0):
         if src == dst:
             return []
+
         result = defaultdict(lambda: defaultdict(lambda: None))
-        distance = defaultdict(lambda: defaultdict(lambda: None))
+        if src==1 and dst == 5:
+            fixed_path=[(1,2),(2,3),(3,5)]
+        elif src == 5 and dst == 1:
+            fixed_path=[(5,3),(3,2),(2,1)]
 
-        # the node is checked
-        seen = [src]
-
-        # the distance to src
-        distance[src] = 0
-
-        w = -1  # weight
-        while len(seen) < len(self.src_links):
-            node = seen[-1]
-            if node == dst:
-                break
-            for (temp_src, temp_dst) in self.src_links[node]:
-                if temp_dst not in seen:
-                    temp_src_port = self.src_links[node][(temp_src, temp_dst)][0]
-                    temp_dst_port = self.src_links[node][(temp_src, temp_dst)][1]
-                    if (distance[temp_dst] is None) or (distance[temp_dst] > distance[temp_src] + w):
-                        distance[temp_dst] = distance[temp_src] + w
-                        # result = {"dpid":(link_src, src_port, link_dst, dst_port)}
-                        result[temp_dst] = (temp_src, temp_src_port, temp_dst, temp_dst_port)
-            min_node = None
-            min_path = 999
-            # get the min_path node
-            for temp_node in distance:
-                if (temp_node not in seen) and (distance[temp_node] is not None):
-                    if distance[temp_node] < min_path:
-                        min_node = temp_node
-                        min_path = distance[temp_node]
-            if min_node is None:
-                break
-            seen.append(min_node)
+        for (temp_src, temp_dst) in fixed_path:
+            if (temp_src, temp_dst) in self.src_links[temp_src]:
+                temp_src_port = self.src_links[temp_src][(temp_src, temp_dst)][0]
+                temp_dst_port = self.src_links[temp_src][(temp_src, temp_dst)][1]
+                result[temp_dst] = (temp_src, temp_src_port, temp_dst, temp_dst_port)
 
         path = []
-
         if dst not in result:
             return None
         while (dst in result) and (result[dst] is not None):
@@ -320,6 +298,7 @@ class dynamic_rules(app_manager.RyuApp):
             dst = result[dst][0]
         #self.logger.info("path : %s", str(path))
         return path
+
 
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])

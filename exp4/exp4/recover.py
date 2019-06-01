@@ -345,14 +345,15 @@ class dynamic_rules(app_manager.RyuApp):
         for ip in self.ip_to_port:
             if self.ip_to_port[ip] == self.path[-1]:
                 dstip=ip
+                dst=self.ip_to_mac[dstip]
+                
 
         for ip in self.ip_to_port:
             if self.ip_to_port[ip] == self.path[0]:
                 srcip=ip
-        
-        src=self.ip_to_mac[srcip]
-        dst=self.ip_to_mac[dstip]
-
+                src=self.ip_to_mac[srcip]
+                
+                        
         '''
         print "test"
         print datapath.id
