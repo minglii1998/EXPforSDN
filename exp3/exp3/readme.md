@@ -7,7 +7,7 @@ EXP 3
    OpenFlow虽然为SDN奠定了基础。但是在进行应用开发的时候有一个很大的局限，就是OpenFlow没有真正做到协议不相关。也就是说，OpenFlow只能依据现有的协议来定义流表项。打个比方，就好像OpenFlow给了我们几个固定形状的积木，让我们自行组装，却不能让我们自己定义积木的形状。<br><br>
    通过P4，我们可以定义各种各样形状的积木，而通过南向协议，我们可以组装这些积木来实现特定的功能。也就是说，写好P4代码并不是全部，我们还需要写相应的控制面代码才能使网络正常工作。与OpenFlow对应的是P4 Runtime。为了实现协议无关。P4的设计者们还提供了一个南向协议——P4 runtime,与OpenFlow功能类似，但是P4 runtime可以充分利用P4协议无关的特性。
 #### 1.2 组成
-#### 【此处插入图片】
+![组成](https://github.com/minglii1998/EXPforSDN/blob/master/exp3/exp3/pic/p4%E7%BB%84%E6%88%90.png)
 * `Parser`: 解析器， 解析并且提取数据包头的各个字段。
 * `Ingress`： Ingress处理，在这里定义Ingress流水线。
 * `TM`： Traffic manager，有一些队列，用于流量控制（一些队列相关的metadata在此更新）。
@@ -222,4 +222,43 @@ control MyDeparser(packet_out packet, in headers hdr) {
 }
 ```
 ### 4. 实验2
-#### 4.1 
+#### 4.1 拓扑结构`mytopo.py`
+```python
+        switch1 = self.addSwitch('s1',sw_path = sw_path,json_path = json_path,thrift_port = 9090,pcap_dump = pcap_dump)
+        switch2 = self.addSwitch('s2',sw_path = sw_path,json_path = json_path,thrift_port = 9091,pcap_dump = pcap_dump)
+        switch3 = self.addSwitch('s3',sw_path = sw_path,json_path = json_path,thrift_port = 9092,pcap_dump = pcap_dump)
+
+        host1 = self.addHost('h1',ip = "10.0.0.10/24", mac = '00:04:00:00:00:01')
+        host2 = self.addHost('h2',ip = "10.0.1.10/24",mac = '00:04:00:00:00:02')
+        host3 = self.addHost('h3',ip = "10.0.2.10/24",mac = '00:04:00:00:00:03')
+
+        self.addLink(host1, switch1)
+        self.addLink(host2, switch2)
+        self.addLink(host3, switch3)
+        self.addLink(switch1,switch2)
+        self.addLink(switch2, switch3)
+        self.addLink(switch3, switch1)
+```
+#### 4.2 流表命令`command1.txt`，`command2.txt`，`command3.txt`
+```python
+table_set_default ipv4_lpm drop
+table_set_default myTunnel_exact drop
+table_add ipv4_lpm ipv4_forward 10.0.0.10/32 => 00:04:00:00:00:01 1
+table_add ipv4_lpm ipv4_forward 10.0.1.10/32 => 00:04:00:00:00:02 2
+table_add ipv4_lpm ipv4_forward 10.0.2.10/32 => 00:04:00:00:00:03 3
+table_add myTunnel_exact myTunnel_forward 1 => 1
+table_add myTunnel_exact myTunnel_forward 2 => 2
+table_add myTunnel_exact myTunnel_forward 3 => 3
+```
+* `table_set_default <table name> <action name> <action parameters>`:当table中的key不匹配的时候默认的action，这里的两个都是drop
+* `table_add <table name> <action name> <match fields> => <action parameters> [priority]`:当matchfields匹配了，则按照表中的action执行
+* eg`table_add ipv4_lpm ipv4_forward 10.0.0.10/32 => 00:04:00:00:00:01 1`意为若`ipv4_lpm`表中的key匹配了10.0.0.10/32，则把参数00:04:00:00:00:01传入，并调用`ipv4_forward`action
+#### 4.3 运行结果
+1. 运行拓扑
+![1](https://github.com/minglii1998/EXPforSDN/blob/master/exp3/exp3/pic/%E8%BF%90%E8%A1%8C%E6%8B%93%E6%89%91.png)
+2. 添加流表
+![2](https://github.com/minglii1998/EXPforSDN/blob/master/exp3/exp3/pic/%E6%B7%BB%E5%8A%A0%E6%B5%81%E8%A1%A8.png)
+3. 运行并抓包
+![3](https://github.com/minglii1998/EXPforSDN/blob/master/exp3/exp3/pic/%E6%8A%93%E5%8C%85.png)
+* 由wireshark抓包可见，有一type为0x1212的包，即为我们自己定义的
+
