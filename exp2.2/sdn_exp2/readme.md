@@ -23,7 +23,7 @@ After the port role is decided (STP calculation is completed), each port becomes
 After that, the state changes as shown below and according to the role of each port, 
 it eventually becomes FORWARD state or BLOCK state. 
 Ports set as disabled ports in the configuration become DISABLE state and after that the change of state does not take place.<br>
-![stp](https://github.com/minglii1998/EXPforSDN/blob/master/exp2.2/sdn_exp2/pic/stp_wrong1.png)
+![stp](https://github.com/minglii1998/EXPforSDN/blob/master/exp2.2/sdn_exp2/pic/sdn2_state.png)
 `DISABLE`	Disabled port. Ignores all received packets.<br>
 `BLOCK`	  Receives BPDU only.<br>
 `LISTEN`	Sends and receives BPDU.<br>
