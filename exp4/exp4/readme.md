@@ -3,7 +3,7 @@ EXP 4
 ###### 具体实验要求可从文件`SDN_exp4.pdf`中查看
 ### 0. 环境与拓扑结构
 环境与第一次第二次实验相同，拓扑结构如图：
-##### 【需在这里加图】
+![topo](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/topo.png)
 ### 1. 动态改变转发规则
 #### 1.1 要求
 h1 ping h2，初始的路由规则为s1-s4-s5，5秒后，路由转发规则变为s1-s2-s3-s5，再过5秒后，转发规则又回到最初的s1-s4-s5，通
@@ -261,7 +261,7 @@ eg，a=defaultdict(lambda:3)，接下来输入任何为给定的key值，如a[2]
 #### 1.4 结果展示
 打开topo指令：`sudo python topo.py --controller-remote`<br>
 打开控制器指令：`sudo ryu_manager own_dynamic_rules.py --observe-links`
-##### 【需在这里加图】
+![result](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AE%9E%E9%AA%8C1%E7%BB%93%E6%9E%9C.png)
 * 左边为mininet，右边为控制器，右边为一个动态的过程，每隔5秒会打印另外一条路径
 ### 2. 链路故障恢复功能
 #### 2.1 要求
@@ -341,14 +341,13 @@ eg，a=defaultdict(lambda:3)，接下来输入任何为给定的key值，如a[2]
 * 这里的两个`parser.OFPMatch()`匹配了in port，dst，dst ip，src， src port，可以看出这个匹配得非常精细，但是实际上并不一定需要这么精细，在后面的讨论中应该会提到这个问题。（当时在写的时候在这里卡了很久很久。）
 #### 2.4 结果展示
 左为mininet，又为控制器，下为xterm h1
-##### 【需在这里加图】
+![result1](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AE%9E%E9%AA%8C2%E6%89%93%E5%BC%80h1.jpg)
 此时为在xterm中h1 ping h2的结果，可看到此时正在用最短路径
-##### 【需在这里加图】
+![result2](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AE%9E%E9%AA%8C2down.jpg)
 此时将s1 s4间的link断掉，可看出从原来的短路径换成了较长的路径<br>
 但是从黄色框框中可看出转换的时间略长，之后可能会去解决这个问题
-##### 【需在这里加图】
+![result3](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AE%9E%E9%AA%8C2up.jpg)
 此时将s1 s4间的link重新连接，可看出从原来的长路径又换成了较短的路径
 #### 2.5 遇到的问题
 #### 2.6 方法改进
 ### 3 总结
-###### 各文档解释：
