@@ -340,14 +340,14 @@ eg，a=defaultdict(lambda:3)，接下来输入任何为给定的key值，如a[2]
 * 在第三个for循环中，从path的后面开始，将整条path全部删掉
 * 这里的两个`parser.OFPMatch()`匹配了in port，dst，dst ip，src， src port，可以看出这个匹配得非常精细，但是实际上并不一定需要这么精细，在后面的讨论中应该会提到这个问题。（当时在写的时候在这里卡了很久很久。）
 #### 2.4 结果展示
-左为mininet，又为控制器，下为xterm h1
+* 左为mininet，又为控制器，下为xterm h1
 ![result1](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AE%9E%E9%AA%8C2%E6%89%93%E5%BC%80h1.jpg)
-此时为在xterm中h1 ping h2的结果，可看到此时正在用最短路径
+* 此时为在xterm中h1 ping h2的结果，可看到此时正在用最短路径
 ![result2](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AE%9E%E9%AA%8C2down.jpg)
-此时将s1 s4间的link断掉，可看出从原来的短路径换成了较长的路径<br>
-但是从黄色框框中可看出转换的时间略长，之后可能会去解决这个问题
+* 此时将s1 s4间的link断掉，可看出从原来的短路径换成了较长的路径
+* 但是从黄色框框中可看出转换的时间略长，之后可能会去解决这个问题
 ![result3](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AE%9E%E9%AA%8C2up.jpg)
-此时将s1 s4间的link重新连接，可看出从原来的长路径又换成了较短的路径
+* 此时将s1 s4间的link重新连接，可看出从原来的长路径又换成了较短的路径
 #### 2.5 遇到的问题
 #### 2.6 方法改进
 ### 3 总结
