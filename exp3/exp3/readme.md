@@ -136,4 +136,90 @@ control ingress(inout headers hdr, inout metadata meta, inout standard_metadata_
 * Control 最主要的目的是协调 Packet 要经过哪一些 Table
 * p4里有两个主要的control flow，ingress和egress，分别代表packet的进入和离开
 * `apply`意为将packet放入特定的table中运行。eg，上面apply中，若满足if条件则进入`ipv4_lpm`和`forward`table，否则进入`drop_all`table。
-* 
+* `action`与C中的函数相似，定义了一些要做的动作，可以读取控制平面（control plane）提供的数据进行操作，然后根据action的代码内容影响数据平面（data plane）的工作。
+* `table`义了匹配字段（key）、动作（action）和一些其他相关属性。先建立其匹配字段，然后数据包中去匹配table中的key中的字段，并获得要执行的"action"。
+* `key`由一个个表单对组成（e:m），其中e是对应数据包中匹配的字段，而m是一个match_kind常数用来表示匹配的算法。eg，lpm 最长前缀字段，ternary 三元匹配
+，exact 完全匹配
+* `size`为table大小，`default_action`为当table miss的时候执行的动作
+### 3. 实验1`exp3_tunnel.p4`
+* 添加了⼀个名为mytunnel_t的新头部字段类型，其中包含两个16位字段：proto_id和dst_id。
+```p4
+header myTunnel_t {
+    bit<16> proto_id;
+    bit<16> dst_id;
+}
+```
+* mytunnel头部需要添加到headers结构中。
+```p4
+struct headers {
+    ethernet_t   ethernet;
+    myTunnel_t   myTunnel;
+    ipv4_t       ipv4;
+}
+```
+* 更新解析器，根据Ethernet头部中的ethertype字段解析mytunnel头部或ipv4头部。与mytunnel头段对应的ethertype是0x1212。如果mytunnel的proto_id==type_ipv4（即0x0800），解析器还应在mytunnel头部之后解析ipv4头部。
+```p4
+    state parse_ethernet {
+        packet.extract(hdr.ethernet);
+        transition select(hdr.ethernet.etherType) {
+            TYPE_MYTUNNEL: parse_myTunnel;
+            TYPE_IPV4: parse_ipv4;
+            default: accept;
+        }
+    }
+
+    state parse_myTunnel {
+        packet.extract(hdr.myTunnel);
+        transition select(hdr.myTunnel.proto_id) {
+            TYPE_IPV4: parse_ipv4;
+            default: accept;
+        }
+    }
+```
+* 定义⼀个名为mytunnel_forward的新的action，该动作只需将出⼝端⼝（即standard_metadata的egress_spec字段）设置为控制平⾯提供的端⼝号。
+```p4
+    action myTunnel_forward(egressSpec_t port) {
+        standard_metadata.egress_spec = port;
+    }
+```
+* 定义⼀个名为mytunnel_exact的新的table，该表根据mytunnel头部的dst_id字段执⾏精确匹配（exact）。如果表中存在匹配项，则此表应调⽤myTunnel_forward转发动作，否则应调⽤Drop动作。
+```p4
+    table myTunnel_exact {
+        key = {
+            hdr.myTunnel.dst_id: exact;
+        }
+        actions = {
+            myTunnel_forward;
+            drop;
+        }
+        size = 1024;
+        default_action = drop();
+    }
+```
+* 更新myIngress控制模块中的apply语句，使得在myTunnel头部有效的情况下应⽤新定义的mytunnel_exact表。否则，如果ipv4头部有效，则调⽤ipv4_lpm表。
+```p4
+    apply {
+        if (hdr.ipv4.isValid() && !hdr.myTunnel.isValid()) {
+            // Process only non-tunneled IPv4 packets
+            ipv4_lpm.apply();
+        }
+
+        if (hdr.myTunnel.isValid()) {
+            // process tunneled packets
+            myTunnel_exact.apply();
+        }
+    }
+}
+```
+* 更新deparser，由于头部的有效性是由隐集解析器提取，因此，这⾥不需要检查头部有效性
+```p4
+control MyDeparser(packet_out packet, in headers hdr) {
+    apply {
+        packet.emit(hdr.ethernet);
+        packet.emit(hdr.myTunnel);
+        packet.emit(hdr.ipv4);
+    }
+}
+```
+### 4. 实验2
+#### 4.1 
