@@ -4,7 +4,7 @@ EXP 4
 ### 0. 环境与拓扑结构
 环境与第一次第二次实验相同，拓扑结构如图：
 ##### 【需在这里加图】
-### 1. 链路恢复
+### 1. 动态改变转发规则
 #### 1.1 要求
 h1 ping h2，初始的路由规则为s1-s4-s5，5秒后，路由转发规则变为s1-s2-s3-s5，再过5秒后，转发规则又回到最初的s1-s4-s5，通
 过这个循环调度的例子动态的改变交换机的转发规则<br>
@@ -142,14 +142,13 @@ eg，a=defaultdict(lambda:3)，接下来输入任何为给定的key值，如a[2]
    ps:原以为这个方法不行，因为有环的存在，可能导致路径不停地绕环，最后发现当目的地一抵达，就会立刻退出循环，故不必担心
    4. 拓扑已知，故可以直接将路径写死
 2. 需要一个全局变量来保存两种模式
-3. 需要一个变量来判断目前的询问是第几次，并判断究竟该install长路径还是短路径（3种方法）
+3. 需要一个变量来判断目前的询问是第几次，并判断究竟该install长路径还是短路径（2种方法）
    1. 利用系统时间<br>
    交换机在获得流表后，就不会再向控制器询问，直到5秒后交换机流表被删除，此时才会再次向控制器询问<br>
    因此可以每次在install_path时都获得一下当前时间，跟上一次的时间对比，若有一定长度，如超过3秒，就可以认为此时应该转换mod<br>
    每次超过3秒都会counting+1，然后取模counting判断mod
    2. 利用install_flow的次数<br>
-   交换机在每次请求时，所需要install path的次数是固定的，因此可记录其次数，然后通过取模判断mod
-   3. 直接在每次install时翻转mod(最简单)
+   交换机在每次请求时，所需要install path的次数是固定的2次，因此可知每4次为1个周期，然后通过取模判断mod就ok了
 #### 1.3 代码实现
 ##### 获取最长路径：方法1
 ```python
@@ -158,7 +157,27 @@ eg，a=defaultdict(lambda:3)，接下来输入任何为给定的key值，如a[2]
         w = -1  # weight
     ...
 ```
-* 就只改了只加了一个负号，贼没牌面
+* 虽然是只加了一个负号，但是这个方法的确是很神奇的，当时第一次听到这个方法时，就觉得提出来的人太聪明了，但是如果不假思索，理所当然地改成负号然后不知道原理，就很没意思。
+* ps：之所以这么说是因为在实验室的时候，一个人在跟另一个人解释为什么改weight就变成了最长路径，一直解释不清楚，甚至weight到底怎么改，是把1改成0还是-1都说不清楚，就在那里理所当然地说，改一下就好了，让我觉得有点emmmm不太好吧。
+##### 获取最长路径：方法3
+```python
+    def long_path(self, src, dst, bw=0):
+    ...
+            max_node = None
+            max_path = 0
+            # get the max_path node
+            for temp_node in distance:
+                if (temp_node not in seen) and (distance[temp_node] is not None):
+                    if distance[temp_node] > max_path:
+                        mmax_node = temp_node
+                        max_path = distance[temp_node]
+            if max_node is None:
+                break
+            seen.append(max_node)
+    ...
+```
+* 这个方法只是将原来的min_path=999改成了max_path=0，然后把min全改成了max，最后修改第一个if条件句中的‘<’改成‘>’就可以了
+* 充分利用已有的代码
 ##### 获取最长路径：方法4
 ```python
     def long_path(self, src, dst, bw=0):
@@ -203,4 +222,133 @@ eg，a=defaultdict(lambda:3)，接下来输入任何为给定的key值，如a[2]
 * `self.last_time`：记录上一次的时间，用来和现在时间进行对比，判断是否需要转换模式
 * `self.counting`：每次时间判断成功，都将该变量+1，通过取模得到mod
 * `self.pathmod`：若为0则短路径，1则长路径
+```python
+    def install_path(self, src_dpid, dst_dpid, src_port, dst_port, ev, src, dst, pkt_ipv4, pkt_tcp):
+    ...
+        nowtime = datetime.now()
+        if nowtime - self.last_time > timedelta(seconds=3):
+            self.counting = self.counting + 1
         
+        self.last_time=nowtime
+
+        if self.counting %2 == 0:
+            self.pathmod = 0
+        elif self.counting %2 == 1:
+            self.pathmod = 1
+       
+        mid_path = None
+        if self.pathmod == 0:
+            mid_path = self.short_path(src=src_dpid, dst=dst_dpid)
+        else:
+            mid_path = self.long_path(src=src_dpid, dst=dst_dpid)
+    ...
+```
+* `nowtime`：获取当前时间
+* if条件句判断时间是否已经过了3秒，若过了3秒，则技术加一
+* 后面即通过取模判断模式
+##### 判断模式：方法2
+```python
+    def install_path(self, src_dpid, dst_dpid, src_port, dst_port, ev, src, dst, pkt_ipv4, pkt_tcp):
+    ...
+        if self.counting %4 == 0 or self.counting %4 == 1:
+            self.pathmod = 0
+        elif self.counting %4 == 2 or self.counting %4 == 3:
+            self.pathmod = 1
+        self.counting = self.counting + 1
+    ...
+```
+* 由于每次switch每次询问都会install两次（一个来回），故可得知每四次是一个循环，循环的前两次为短路径，后两次为长路径
+#### 1.4 结果展示
+打开topo指令：`sudo python topo.py --controller-remote`<br>
+打开控制器指令：`sudo ryu_manager own_dynamic_rules.py --observe-links`
+##### 【需在这里加图】
+* 左边为mininet，右边为控制器，右边为一个动态的过程，每隔5秒会打印另外一条路径
+### 2. 链路故障恢复功能
+#### 2.1 要求
+在上图所示的拓扑结构中，h1到h2有两条通路，若其中正在进行传输的路径因为发生故障而断开连接，系统应当及时作出反应，改变转发
+规则到另外一条路径上；若故障修复，系统也应当即时作出反应，改变转发规则到优先级较高的路径上
+#### 2.2 思路
+1. 控制器要能判断有link被down了
+2. 在某一条link被down之后，交换机中有关这条路线的流表应该被清除，否则可能会导致交换机按照原来的流表传送信息，就会卡在断掉的link处
+3. 交换机失去流表后，就会向控制器询问路径，此时只要继续用最短路径算法计算目前拓扑情况下的最短路径即可
+4. 对于priority，个人觉得并不重要，因为无论何时交换机变动，控制器都会计算最短路径，所以不需要priority也可完成
+5. 若需要priority，可将priority设为`100-len(self.path)`，因为路径越短priority越高，因此需要在前面加上负号，但是又因为priority必须为正，因此再加上100，当然，若知道路径会很长，就加上1000、10000甚至更多都可以。这种方法与固定的priority值相比有不好少好处：
+   1. 不用去额外为每条路径设置priority
+   2. 在匹配priority时，不需要查阅这条路径的priority是多少，不管是匹配或者加载，都只要令priority=100-len(self.path)即可
+   3. 非常适用于路径数量较多的情况。eg，若是第二次实验的拓扑，人工为每条路径加上priority是不可能的，因此可直接用该方法
+   4. 此方法也适用于带权的路径，只要把len从计算跳数变成计算整条路径的长度即可
+   5. 潜在缺点：若两个路径长度相同，该方法会将其设为相同的优先级，但是一般情况若两条路径长度都一样，优先级相同似乎也无可厚非
+#### 2.3 代码实现
+##### 删除流表
+```python
+    def delete_flow(self, datapath,match):
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+        cookie = cookie_mask = 0
+        table_id = 0
+        priority=101
+        idle_timeout = 15
+        hard_timeout = 60
+        buffer_id = ofp.OFP_NO_BUFFER
+        actions = []
+        inst = []
+        req = ofp_parser.OFPFlowMod(datapath, 
+                                cookie, cookie_mask, table_id, 
+                                ofp.OFPFC_DELETE, idle_timeout, 
+                                hard_timeout, priority, buffer_id, 
+                                ofp.OFPP_ANY, ofp.OFPG_ANY, ofp.OFPFF_SEND_FLOW_REM, 
+                                match, inst)
+        datapath.send_msg(req)
+```
+* 删除流表的实现`delete_flow`其实大同小异，且与`add_flow`很相似，具体如何传参要看自己打算如何匹配
+* `delete_flow()`的参数`datapath`表示要删除哪一个交换机的流表，`match`表示要删除该交换机满足什么条件的流表
+* `ofp_parser.OFPFlowMod()`中有参数`ofp.OFPFC_DELETE`则为删除流表，若缺省则默认为增加流表
+* `ofp_parser.OFPFlowMod()`中参数很多，似乎不一定可以缺省，以防万一，即使用不到也都写上吧
+##### 获得变动信息
+```python
+    @set_ev_cls(ofp_event.EventOFPPortStatus, [CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER, HANDSHAKE_DISPATCHER])
+    def get_OFPPortStatus_msg(self, ev):
+    
+        msg=ev.msg
+        datapath=ev.msg.datapath
+        dpid = msg.datapath.id
+        ofproto=datapath.ofproto
+        parser = datapath.ofproto_parser   
+
+        for ip in self.ip_to_port:
+            if self.ip_to_port[ip] == self.path[-1]:
+                dstip=ip
+                dst=self.ip_to_mac[dstip]            
+
+        for ip in self.ip_to_port:
+            if self.ip_to_port[ip] == self.path[0]:
+                srcip=ip
+                src=self.ip_to_mac[srcip]
+                
+        for i in xrange(len(self.path) - 2, -1, -2):
+            datapath_path = self.datapaths[self.path[i][0]]
+
+            match1 = parser.OFPMatch(in_port=self.path[i][1], eth_src=src, eth_dst=dst, eth_type=0x0800,
+                                    ipv4_src=srcip, ipv4_dst=dstip)
+            self.delete_flow(datapath=datapath_path,match=match1)
+            match2 = parser.OFPMatch(in_port=self.path[i+1][1], eth_src=dst, eth_dst=src, eth_type=0x0800,
+                                    ipv4_src=dstip, ipv4_dst=srcip)
+            self.delete_flow(datapath=datapath_path,match=match2)
+```
+* ` @set_ev_cls()`中的之前也讲过，是在说明何时调用该函数
+* 前两个for循环是为了得到dst，src，dst_ip，src_ip，利用了全局变量`self.ip_to_port`和`self.ip_to_mac`
+* 在第三个for循环中，从path的后面开始，将整条path全部删掉
+* 这里的两个`parser.OFPMatch()`匹配了in port，dst，dst ip，src， src port，可以看出这个匹配得非常精细，但是实际上并不一定需要这么精细，在后面的讨论中应该会提到这个问题。（当时在写的时候在这里卡了很久很久。）
+#### 2.4 结果展示
+左为mininet，又为控制器，下为xterm h1
+##### 【需在这里加图】
+此时为在xterm中h1 ping h2的结果，可看到此时正在用最短路径
+##### 【需在这里加图】
+此时将s1 s4间的link断掉，可看出从原来的短路径换成了较长的路径<br>
+但是从黄色框框中可看出转换的时间略长，之后可能会去解决这个问题
+##### 【需在这里加图】
+此时将s1 s4间的link重新连接，可看出从原来的长路径又换成了较短的路径
+#### 2.5 遇到的问题
+#### 2.6 方法改进
+### 3 总结
+###### 各文档解释：
