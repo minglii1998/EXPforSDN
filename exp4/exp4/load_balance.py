@@ -14,11 +14,11 @@ from ryu.lib.packet import ether_types
 from ryu.app.wsgi import  WSGIApplication
 from collections import defaultdict
 from datetime import datetime,timedelta
-import network_monitor
+#import network_monitor
 class dynamic_rules(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = {
-        "Network_Monitor": network_monitor.Network_Monitor,
+        #"Network_Monitor": network_monitor.Network_Monitor,
         "wsgi": WSGIApplication
     }
     def __init__(self, *args, **kwargs):
@@ -26,8 +26,6 @@ class dynamic_rules(app_manager.RyuApp):
         self.mac_to_port = {}
         self.ip_to_mac = {}
         self.mac_to_dpid = {}  # {mac:(dpid,port)}
-        self.last_time=datetime.now()
-        self.counting=0
 
         self.datapaths = defaultdict(lambda: None)
         self.topology_api_app = self
@@ -37,7 +35,7 @@ class dynamic_rules(app_manager.RyuApp):
 
         self.qos_ip_bw_list = []
 
-        self.network_monitor = kwargs["Network_Monitor"]
+        #self.network_monitor = kwargs["Network_Monitor"]
 
         
         self.ip_to_switch = {}
@@ -47,6 +45,8 @@ class dynamic_rules(app_manager.RyuApp):
         #promise me, use it well :)
         self.pathmod = 0 #0:short,1:long
         self.path = None
+        self.allpath = None
+
 
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
@@ -63,8 +63,7 @@ class dynamic_rules(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
-                                             actions)]
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,actions)]
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     priority=priority, match=match,
@@ -99,9 +98,11 @@ class dynamic_rules(app_manager.RyuApp):
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             return
 
+
         dst = eth.dst
         src = eth.src
         dpid = datapath.id
+        #print "pac in"
 
         # self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
@@ -111,7 +112,6 @@ class dynamic_rules(app_manager.RyuApp):
 
         # arp handle
         if pkt_arp and pkt_arp.opcode == arp.ARP_REQUEST:
-            self.last_time=datetime.now()
             if pkt_arp.src_ip not in self.ip_to_mac:
                 self.ip_to_mac[pkt_arp.src_ip] = src
                 self.mac_to_dpid[src] = (dpid, in_port)
@@ -148,6 +148,7 @@ class dynamic_rules(app_manager.RyuApp):
             return
 
         if pkt_ipv4 and (self.ip_to_port.get(pkt_ipv4.dst)) and (self.ip_to_port.get(pkt_ipv4.src)):
+
             (src_dpid, src_port) = self.ip_to_port[pkt_ipv4.src]  # src dpid and port
             (dst_dpid, dst_port) = self.ip_to_port[pkt_ipv4.dst]  # dst dpid and port
             self.install_path(src_dpid=src_dpid, dst_dpid=dst_dpid, src_port=src_port, dst_port=dst_port,
@@ -170,41 +171,65 @@ class dynamic_rules(app_manager.RyuApp):
         self.send_pkt(datapath, port, pkt)
 
     def install_path(self, src_dpid, dst_dpid, src_port, dst_port, ev, src, dst, pkt_ipv4, pkt_tcp):
+        print "install path"
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
+        parser = datapath.ofproto_parser    
 
-        nowtime = datetime.now()
-        if nowtime - self.last_time > timedelta(seconds=3):
-            self.counting = self.counting + 1
-        
-        print self.counting
-        print "time:"
-        print self.last_time
-        print nowtime
-        
-        self.last_time=nowtime
-
-
-        if self.counting %2 == 0:
-            self.pathmod = 0
-        elif self.counting %2 == 1:
-            self.pathmod = 1
+        mid_path = self.short_path(src=src_dpid, dst=dst_dpid)
        
-        mid_path = None
-        if self.pathmod == 0:
-            mid_path = self.short_path(src=src_dpid, dst=dst_dpid)
-        else:
-            mid_path = self.long_path(src=src_dpid, dst=dst_dpid)
-
-        #mid_path = self.short_path(src=src_dpid, dst=dst_dpid)
-        #mid_path = self.long_path(src=src_dpid, dst=dst_dpid)
 
         if mid_path is None:
             return
         self.path = None
         self.path = [(src_dpid, src_port)] + mid_path + [(dst_dpid, dst_port)]
+
+        self.logger.info("path : %s", str(self.path))
+        #print self.pathmod
+        
+        for i in xrange(len(self.path) - 2, -1, -2):
+            datapath_path = self.datapaths[self.path[i][0]]
+
+            if (self.path[i][0] == 1 and self.path[i][1] == 1) or (self.path[i][0] == 5 and self.path[i][1] == 1):
+                if self.path[i][0] == 1 :
+                    self.send_group_mod(datapath,1)
+                    print '--------------'
+                    actions = [parser.OFPActionGroup(group_id=101)]
+                    match = parser.OFPMatch(
+                                            eth_type=0x0800,
+                                            ipv4_src=pkt_ipv4.src)
+                    self.add_flow(datapath_path, 100 ,match, actions, idle_timeout=0, hard_timeout=0)
+                elif self.path[i][0] == 5 :
+                    self.send_group_mod(datapath,5)
+                    print '--------------'
+                    actions = [parser.OFPActionGroup(group_id=105)]
+                    match = parser.OFPMatch(
+                                            eth_type=0x0800,
+                                            ipv4_src=pkt_ipv4.src)
+                    self.add_flow(datapath_path, 100 ,match, actions, idle_timeout=0, hard_timeout=0)
+                
+            else:
+
+                match = parser.OFPMatch(in_port=self.path[i][1], eth_src=src, eth_dst=dst, eth_type=0x0800,
+                            ipv4_src=pkt_ipv4.src, ipv4_dst=pkt_ipv4.dst)
+
+                if i < (len(self.path) - 2):
+                    actions = [parser.OFPActionOutput(self.path[i + 1][1])]
+                else:
+                    actions = [parser.OFPActionSetField(eth_dst=self.ip_to_mac.get(pkt_ipv4.dst)),
+                                parser.OFPActionOutput(self.path[i + 1][1])]
+                
+                self.add_flow(datapath_path, 100, match, actions, idle_timeout=0, hard_timeout=0)
+        # time_install = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+        # self.logger.info("time_install: %s", time_install)
+
+        mid_path2 = self.long_path(src=src_dpid, dst=dst_dpid)
+
+        if mid_path2 is None:
+            return
+        self.path = None
+        self.path = [(src_dpid, src_port)] + mid_path2 + [(dst_dpid, dst_port)]
 
         self.logger.info("path : %s", str(self.path))
         #print self.pathmod
@@ -220,7 +245,7 @@ class dynamic_rules(app_manager.RyuApp):
                 actions = [parser.OFPActionSetField(eth_dst=self.ip_to_mac.get(pkt_ipv4.dst)),
                             parser.OFPActionOutput(self.path[i + 1][1])]
             
-            self.add_flow(datapath_path, 100, match, actions, idle_timeout=0, hard_timeout=5)
+            self.add_flow(datapath_path, 100, match, actions, idle_timeout=0, hard_timeout=0)
         # time_install = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
         # self.logger.info("time_install: %s", time_install)
 
@@ -334,7 +359,86 @@ class dynamic_rules(app_manager.RyuApp):
 
 
     # these two functions need to be coded in your own way
-    #def delete_flow(self, datapath, priority, match, actions, idle_timeout=10, hard_timeout=60):
+    def delete_flow(self, datapath,match):
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+        cookie = cookie_mask = 0
+        table_id = 0
+        priority=101
+        idle_timeout = 15
+        hard_timeout = 60
+        buffer_id = ofp.OFP_NO_BUFFER
+        #match = ofp_parser.OFPMatch()
+        #match = ofp_parser.OFPMatch(in_port=3, eth_type=flow_info[0], ipv4_src="10.0.0.1", ipv4_dst="10.0.0.2")
+        actions = []
+        inst = []
+        req = ofp_parser.OFPFlowMod(datapath, 
+                                cookie, cookie_mask, table_id, 
+                                ofp.OFPFC_DELETE, idle_timeout, 
+                                hard_timeout, priority, buffer_id, 
+                                ofp.OFPP_ANY, ofp.OFPG_ANY, ofp.OFPFF_SEND_FLOW_REM, 
+                                match, inst)
+        datapath.send_msg(req)
 
-    #@set_ev_cls(ofp_event.EventOFPPortStatus, [CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER, HANDSHAKE_DISPATCHER])
-    #def get_OFPPortStatus_msg(self, ev):
+
+    @set_ev_cls(ofp_event.EventOFPPortStatus, [CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER, HANDSHAKE_DISPATCHER])
+    def get_OFPPortStatus_msg(self, ev):
+    
+        msg=ev.msg
+        datapath=ev.msg.datapath
+        dpid = msg.datapath.id
+        ofproto=datapath.ofproto
+        parser = datapath.ofproto_parser 
+        
+
+        for ip in self.ip_to_port:
+            if self.ip_to_port[ip] == self.path[-1]:
+                dstip=ip
+                dst=self.ip_to_mac[dstip]
+                
+
+        for ip in self.ip_to_port:
+            if self.ip_to_port[ip] == self.path[0]:
+                srcip=ip
+                src=self.ip_to_mac[srcip]
+                
+                        
+        '''
+        print "test"
+        print datapath.id
+        print msg.reason
+        print ofproto.OFPPR_MODIFY
+        '''
+        for i in xrange(len(self.path) - 2, -1, -2):
+            datapath_path = self.datapaths[self.path[i][0]]
+
+
+            match1 = parser.OFPMatch(in_port=self.path[i][1], eth_src=src, eth_dst=dst, eth_type=0x0800,
+                                    ipv4_src=srcip, ipv4_dst=dstip)
+            self.delete_flow(datapath=datapath_path,match=match1)
+            match2 = parser.OFPMatch(in_port=self.path[i+1][1], eth_src=dst, eth_dst=src, eth_type=0x0800,
+                                    ipv4_src=dstip, ipv4_dst=srcip)
+            self.delete_flow(datapath=datapath_path,match=match2)
+
+    def send_group_mod(self, datapath,flag,):
+        ofproto = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+
+        buckets = []
+        
+        port_1 = 3
+        port_2 = 2
+        bucket_action_1 = [ofp_parser.OFPActionOutput(port_1)]
+        bucket_action_2 = [ofp_parser.OFPActionOutput(port_2)]
+        
+        buckets = [
+            ofp_parser.OFPBucket(10-len(self.path), port_1, ofproto.OFPG_ANY, bucket_action_1),
+            ofp_parser.OFPBucket(10-len(self.path), port_2, ofproto.OFPG_ANY, bucket_action_2)]
+        if flag == 1:
+            group_id = 101
+        elif flag == 5 :
+            group_id = 105
+        req = ofp_parser.OFPGroupMod(datapath, ofproto.OFPFC_ADD,
+                                        ofproto.OFPGT_SELECT, group_id, buckets)
+
+        datapath.send_msg(req)
