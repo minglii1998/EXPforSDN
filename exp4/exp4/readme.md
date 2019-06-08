@@ -351,7 +351,7 @@ eg，a=defaultdict(lambda:3)，接下来输入任何为给定的key值，如a[2]
 ### 3 负载均衡
 #### 3.1 组表介绍
 ##### 3.1.1 组表构成
-###### 【插入图片】
+![group table](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E7%BB%84%E8%A1%A8.jpg)
 * `Group Identifier`：一个32位无符号整数，Group Entry的唯一标识。 
 * `Group Type`：决定了Group的语义，通俗地讲，就是表明了对数据包的处理行为，具体参考下文。 
 * `Counters`：被该Group Entry处理过的数据包的统计量。 
@@ -471,17 +471,29 @@ RyuBook无详细说明，详见[ryu中的组表](https://blog.csdn.net/haimianxi
 
         datapath.send_msg(req)
 ```
-###### 图片
+![topo](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/topo_port.png)
 * 根据拓扑结构可知，短路径的switch1和switch5的出端口都是3，而长路径的出端口都是2
 * 短路径weight为3，长路径weight为2
 * 通过flag确定目前是在为switch1还是switch5添加组表
 #### 3.4 结果展示
 ##### 3.4.1 switch1 和 switch 5组表
+![group table](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E7%BB%84%E8%A1%A8.png)
+* 由图可见s1和s2的组表，s1的组表id为101，短路径的weight为3，出端口为3，长路径weight为2，出端口为2，s5组表id为105，其他与s1相似
 ##### 3.4.2 各个端口发送总数
-* 实验组：
-* 对照组：
+###### 实验组：
+![实验组](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E7%BB%93%E6%9E%9C.png)
+* 左上为h1终端，中上为h2终端，右上为控制器，左下为mininet，右下为查看端口
+* 分析右下s5的2端口和3端口，3端口为短路径，tx_pkts为发送的包数量，可见发送数量为409320,2端口为长路径，发包数量为97038，约为4:1的关系，可见满足了负载平衡
+###### 对照组：
+![对照组](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AF%B9%E7%85%A7%E7%BB%84.png)
+* 对照组为直接全部使用最短路径的方式发包
+* 可见路径较短的3端口发送的包的数量490024，而长路径的2号端口仅有114，差了近5000倍
+<br>
+* 由此可得出结论，成功实现了负载均衡，将原来只用最短路径的5000:1平衡到了4:1
 ### 4. 总结
-#### 4.1 动态改变转发规则
-#### 4.2 链路故障恢复
-#### 4.3 负载均衡
-#### 4.4 快速链路故障恢复
+本次实验的总体难度还可以，在开始实验之前，我将助教提供的代码完整地研究了一遍，并做了完整的解析。<br><br>
+在做动态改变转发规则时，我总结了4种获取最短路径的方法，在改变转发规则时，提供了2种判断转换的方法。因此对如何动态改变，以及如何使用hard timeout以及idle timeout都有了一个较明确的认识。<br><br>
+在做链路故障恢复时，两个主要的函数`delete_flow()`和`get_OFPPortStatus_msg()`卡了比较久，对parser.OFPMatch()该匹配到什么程度一直不确定，最开始在写的时候没有写具体的匹配规则，因此再switch变更后，所有的流表，包括switch通向控制器的流表都会被删除，因此产生了很多麻烦。后来仿照add_flow()将匹配做到了最精细的情况，就解决了这个情况。但是至于该如何得到精确匹配需要的参数，也是卡了一段时间，最后发现可以直接使用前面定义的一些全局变量来获得，就不需要再自己来构造新的数据结构了。<br><br>
+在负载均衡时，网上相关的资料比较少，但是好在找到了一两篇博客讲的比较详细，因此才能将组表的使用方法弄清楚。`load_balance.py`这个代码是完全基于现有的拓扑结构`topo.py`写的，但是可以看到上面的结果，负载均衡是可以成功实现的。后来试图写一个适用于所有拓扑结构的负载均衡代码`new_LB.py`，但是由于时间不够，还有不少需要debug。<br><br>
+最后的快速链路故障恢复，也是用到组表的，需要将组表中的`OFPGT_SELECT`改为`OFPGT_FF`，但是经测试，恢复的时间似乎并没有比原来快太多，不知原因为何。<br><br>
+总的来说，这次是我们的最后一次SDN的实验，通过这学期SDN的学习以及代码的编写，我觉得我对SDN有了还算比较清晰的认识，代码能力也有不小的提升。学了这么多SDN相关的东西，甚至希望今后还能用上。
