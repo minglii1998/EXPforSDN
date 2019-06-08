@@ -348,6 +348,140 @@ eg，a=defaultdict(lambda:3)，接下来输入任何为给定的key值，如a[2]
 * 但是从黄色框框中可看出转换的时间略长，之后可能会去解决这个问题
 ![result3](https://github.com/minglii1998/EXPforSDN/blob/master/exp4/exp4/pic/%E5%AE%9E%E9%AA%8C2up.jpg)
 * 此时将s1 s4间的link重新连接，可看出从原来的长路径又换成了较短的路径
-#### 2.5 遇到的问题
-#### 2.6 方法改进
-### 3 总结
+### 3 负载均衡
+#### 3.1 组表介绍
+##### 3.1.1 组表构成
+###### 【插入图片】
+* `Group Identifier`：一个32位无符号整数，Group Entry的唯一标识。 
+* `Group Type`：决定了Group的语义，通俗地讲，就是表明了对数据包的处理行为，具体参考下文。 
+* `Counters`：被该Group Entry处理过的数据包的统计量。 
+* `Action Buckets`：一个Action Bucket的有序列表，每个Action Bucket又包含了一组Action集合及其参数
+##### 3.1.2 组表类型
+###### 【插入图片】
+RyuBook无详细说明，详见[ryu中的组表](https://blog.csdn.net/haimianxiaojie/article/details/50994072)
+* `OFPGT_ALL`all：Group Table中所有的Action Buckets都会被执行，这种类型的Group Table主要用于数据包的多播或者广播。数据包对于每一个Action Bucket都会被克隆一份，进而克隆体被处理。如果一个Action Bucket显示地将数据包发回其 ingress port，那么该数据包克隆体会被丢弃；但是，如果确实需要将数据包的一个克隆体发送回其 ingress port，那么该Group Table里就需要一个额外的Action Bucket，它包含了一个 output action 将数据包发送到 OFPP_IN_PORT Reserved Port。 
+* `OFPGT_SELECT`select：仅仅执行Group Table中的某一个Action Bucket，基于OpenFlow Switch的调度算法，比如基于用户某个配置项的hash或者简单的round robin，所有的配置信息对于OpenFlow Switch来说都是属于外部的。当将数据包发往一个当前down掉的port时，Switch能将该数据包替代地发送给一个预留集合（能将数据包转发到当前live的ports上），而不是毫无顾忌地继续将数据包发送给这个down的port，这或许可以明显降低由于一个down的link或者switch带来的灾难。 
+* `OFPGT_INDIRECT`indirect：执行Group Table中已经定义好的Action Bucket，这种类型的Group Table仅仅只支持一个Action Bucket。允许多个Flow Entries或者Groups 指向同一个通用的 Group Identifier，支持更快更高效的聚合。这种类型的Group Table与那些仅有一个Action Bucket的Group Table是一样的。 
+* `OFPGT_FF`fast failover：执行第一个live的Action Bucket，每一个Action Bucket都关联了一个指定的port或者group来控制它的存活状态。Buckets会依照Group顺序依次被评估，并且第一个关联了一个live的port或者group的Action Bucket会被筛选出来。这种Group类型能够自行改变Switch的转发行为而不用事先请求Remote Controller。如果当前没有Buckets是live的，那么数据包就被丢弃，因此这种Group必须要实现一个管理存活状态的机制。
+#### 3.2 思路
+##### 3.2.1 获取从h1到h2的所有路径
+* 可用DFS，或者就直接用前面算法中的最短路径最长路径也可以得到
+```python
+    def get_paths(self, src, dst):
+        '''
+        Get all paths from src to dst using DFS algorithm    
+        '''
+        if src == dst:
+            # host target is on the same switch
+            return [[src]]
+        paths = []
+        stack = [(src, [src])]
+        while stack:
+            (node, path) = stack.pop()
+            for next in set(self.adjacency[node].keys()) - set(path):
+                if next is dst:
+                    paths.append(path + [next])
+                else:
+                    stack.append((next, path + [next]))
+        print "Available paths from ", src, " to ", dst, " : ", paths
+        return paths
+```
+* 这里为DFS算法，可得到多个路径放入paths
+* `paths`:{[path1],[path2]}
+##### 3.2.2 对路径上的每个switch，计算有几个出端口
+```python
+        for node in switches_in_paths:
+        
+            ports = defaultdict(list)
+
+            for path in paths_with_ports:
+                if node in path:
+                    in_port = path[node][0]
+                    out_port = path[node][1]
+                    if (out_port, pw[i]) not in ports[in_port]:
+                        ports[in_port].append((out_port, pw[i]))
+                i += 1
+                
+                out_ports = ports[in_port]
+```
+* `paths_with_ports`:[{dpid1:(in_port,out_port),dpid2(in_port,out_port),...},{...},...]
+##### 3.2.3 对于有两个及以上出端口的switch，添加组表
+```python
+                if len(out_ports) > 1:
+                    group_id = None
+                    group_new = False
+
+                    buckets = []
+
+                    for port, weight in out_ports:
+                        bucket_weight = int(round((1 - weight/sum_of_pw) * 10))
+                        bucket_action = [ofp_parser.OFPActionOutput(port)]
+                        buckets.append(
+                            ofp_parser.OFPBucket(
+                                weight=bucket_weight,
+                                watch_port=port,
+                                watch_group=ofp.OFPG_ANY,
+                                actions=bucket_action
+                            )
+                        )
+
+                    if group_new:
+                        req = ofp_parser.OFPGroupMod(
+                            dp, ofp.OFPGC_ADD, ofp.OFPGT_SELECT, group_id,
+                            buckets
+                        )
+                        dp.send_msg(req)
+                    else:
+                        req = ofp_parser.OFPGroupMod(
+                            dp, ofp.OFPGC_MODIFY, ofp.OFPGT_SELECT,
+                            group_id, buckets)
+                        dp.send_msg(req)
+```
+* 对于有两个以上端口的switch，添加组表，对于只有一个出端口的，就只需要添加流表
+* 这里weight的计算方法为找出所有路径的跳数，然后除以该路径的跳数，然后1减去得到的值，再乘以10，即可得到weight
+这部分代码为`ryu_multipath.py`，详见[Multipath Routing with Load Balancing using RYU OpenFlow Controller](https://wildanmsyah.wordpress.com/2018/01/13/multipath-routing-with-load-balancing-using-ryu-openflow-controller/#more-556)
+#### 3.3 代码`load_balance.py`
+##### 3.3.1 整体情况
+1. 通过之前的最短路径和最长路径算法，直接得到该拓扑的两条路径
+2. 分析该拓扑，可知仅有switch1和switch5有两个出端口，因此直接对这两个switch添加组表
+3. 添加组表时，以10-len(self.path)作为bucket weight，因为长度越短的weight应该越高，且最好比例差距大一些
+4. group id可以为随机数
+##### 3.3.2 部分代码
+```python
+    def send_group_mod(self, datapath,flag,):
+        ofproto = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+
+        buckets = []
+        
+        port_1 = 3
+        port_2 = 2
+        bucket_action_1 = [ofp_parser.OFPActionOutput(port_1)]
+        bucket_action_2 = [ofp_parser.OFPActionOutput(port_2)]
+        
+        buckets = [
+            ofp_parser.OFPBucket(3, port_1, ofproto.OFPG_ANY, bucket_action_1),
+            ofp_parser.OFPBucket(2, port_2, ofproto.OFPG_ANY, bucket_action_2)]
+        if flag == 1:
+            group_id = 101
+        elif flag == 5 :
+            group_id = 105
+        req = ofp_parser.OFPGroupMod(datapath, ofproto.OFPFC_ADD,
+                                        ofproto.OFPGT_SELECT, group_id, buckets)
+
+        datapath.send_msg(req)
+```
+###### 图片
+* 根据拓扑结构可知，短路径的switch1和switch5的出端口都是3，而长路径的出端口都是2
+* 短路径weight为3，长路径weight为2
+* 通过flag确定目前是在为switch1还是switch5添加组表
+#### 3.4 结果展示
+##### 3.4.1 switch1 和 switch 5组表
+##### 3.4.2 各个端口发送总数
+* 实验组：
+* 对照组：
+### 4. 总结
+#### 4.1 动态改变转发规则
+#### 4.2 链路故障恢复
+#### 4.3 负载均衡
+#### 4.4 快速链路故障恢复
