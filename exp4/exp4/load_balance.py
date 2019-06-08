@@ -194,7 +194,7 @@ class dynamic_rules(app_manager.RyuApp):
             if (self.path[i][0] == 1 and self.path[i][1] == 1) or (self.path[i][0] == 5 and self.path[i][1] == 1):
                 if self.path[i][0] == 1 :
                     self.send_group_mod(datapath,1)
-                    print '--------------'
+                    #print '--------------'
                     actions = [parser.OFPActionGroup(group_id=101)]
                     match = parser.OFPMatch(
                                             eth_type=0x0800,
@@ -202,7 +202,7 @@ class dynamic_rules(app_manager.RyuApp):
                     self.add_flow(datapath_path, 100 ,match, actions, idle_timeout=0, hard_timeout=0)
                 elif self.path[i][0] == 5 :
                     self.send_group_mod(datapath,5)
-                    print '--------------'
+                    #print '--------------'
                     actions = [parser.OFPActionGroup(group_id=105)]
                     match = parser.OFPMatch(
                                             eth_type=0x0800,
@@ -432,8 +432,8 @@ class dynamic_rules(app_manager.RyuApp):
         bucket_action_2 = [ofp_parser.OFPActionOutput(port_2)]
         
         buckets = [
-            ofp_parser.OFPBucket(10-len(self.path), port_1, ofproto.OFPG_ANY, bucket_action_1),
-            ofp_parser.OFPBucket(10-len(self.path), port_2, ofproto.OFPG_ANY, bucket_action_2)]
+            ofp_parser.OFPBucket(3, port_1, ofproto.OFPG_ANY, bucket_action_1),
+            ofp_parser.OFPBucket(2, port_2, ofproto.OFPG_ANY, bucket_action_2)]
         if flag == 1:
             group_id = 101
         elif flag == 5 :
